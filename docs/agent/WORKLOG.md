@@ -54,3 +54,26 @@
 ---
 
 *最后更新：2026-07-07 09:41（大白建，独立 v1.0）*
+### 2026-07-07 17:52（小千：完成两个大白派活）
+
+**任务 1 - XIAOQIAN-WEBAUTO-MIGRATE-001**：迁移 webauto 任务到独立 TASKS.md
+- 结果：✅ 无需迁移。grep 确认 ShopAuto TASKS.md 无 webauto 相关条目
+- commit：无文件变更（ShopAuto TASKS.md 空，无可迁移内容）
+
+**任务 2 - XIAOQIAN-WEBAUTO-INIT-REVIEW-002**：Review 110 tracked 文件 + 拆分策略
+- 识别 11 个独立模块
+- 定义 7 条 commit 拆分规则
+- 列出 5 条禁止跨边界混 commit 红线
+- 给出 Core/Zhipu 内部 8 个子域拆分建议
+- 附文件归属速查表
+- 输出文件：`docs/decisions/001-commit-split-strategy.md`
+- **commits**：
+  - `ccbb413` — docs(decisions): ADR-001 Commit Split Strategy（新建策略文档）
+  - `d3adf2e` — docs(agent): 更新 WebAuto TASKS.md v1.1（标记两个任务 DONE）
+
+**护栏遵守情况**：
+- ✅ 在 main 分支上操作（未切分支）
+- ✅ 未使用 git merge/rebase/reset/stash/push
+- ✅ commit 含"提交人信息"段（铁律 10.1）
+- ✅ 允许的进程操作（无超纲）
+
