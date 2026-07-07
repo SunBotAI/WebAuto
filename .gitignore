@@ -1,0 +1,38 @@
+
+# 环境
+.venv/
+.venv-fix/
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# 截图和录屏
+demo/*.png
+demo/*.jpg
+demo/*.mp4
+demo/screenshots/
+demo/videos/
+
+# 模型
+data/models/
+
+# 日志
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
