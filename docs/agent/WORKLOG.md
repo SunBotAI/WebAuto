@@ -142,3 +142,37 @@
 - ✅ 写文件在 main 分支
 - ✅ commit 含提交人信息段（铁律 10.1）
 
+
+---
+
+### 2026-07-08 00:40（小千：TASKS v1.4 修订 + ADR-002 Accepted）
+
+**任务来源**：大白 sessions_send 派活，基于大白对 ADR-002 完整内容（34860 chars）的分析 + 老大 23:37 拍板。
+
+**变更 1 — TASKS.md v1.4**：
+- 修订 1：002 加"统计一致性检查"验收项（UA + Platform + Vendor + Locale + Timezone + Screen + Hardware 7 项关联）
+- 修订 2：004 加"max_concurrent + 内存监控"验收项
+- 修订 3：005 加"cooldown 防风控"验收项
+- 追加 3 个 P1 备选 task（009 / 010 / 011）
+
+**变更 2 — ADR-002 Status**：
+- `docs/decisions/002-fingerprint-browser-integration.md`
+- Status: Proposed (待评审) → Accepted
+- 加 Accepted Date: 2026-07-07
+- 加 Accepted by: 大白（基于老大 23:37 拍板）
+
+**变更 3 — WORKLOG.md**：
+- 追加本条记录
+
+**commits**（分 3 个 commit）：
+- `15439d1`（上条遗留）：feat(webauto): 实现 Core/Profile 指纹浏览器 P0 底座
+- `TASKS v1.4 commit`：docs(agent): TASKS v1.4 — 3 修订 + 3 P1 备选 task
+- `ADR-002 commit`：docs(decisions): ADR-002 Status Proposed → Accepted
+- `WORKLOG commit`：docs(agent): 更新 WORKLOG
+
+**护栏遵守情况**：
+- ✅ 在 WebAuto main 分支操作（未切分支）
+- ✅ 未使用 git merge/rebase/reset/stash/push
+- ✅ commit 含提交人信息段（铁律 10.1）
+- ✅ ADR-002 只改 status 区域，未动其他内容
+
