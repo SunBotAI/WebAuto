@@ -1,0 +1,1 @@
+"""WebAuto test suite. Run with `python -m unittest discover Tests -v`."""

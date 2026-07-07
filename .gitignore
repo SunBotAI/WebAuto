@@ -36,3 +36,8 @@ logs/
 *.swp
 *.swo
 *~
+
+# 嵌入式开源仓库引用（避免 git add embedded git repo 警告）
+References/GlmCodingGrabber/
+References/GlmCodingHelper/
+References/GlmRush/
