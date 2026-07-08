@@ -83,6 +83,10 @@ class ProfileStore:
 
         return pdir
 
+    def exists(self, profile_id: str) -> bool:
+        """检查 Profile 是否存在"""
+        return self._config_path(profile_id).exists()
+
     def get(self, profile_id: str) -> Profile:
         """读取 Profile 配置（不加载 user-data）"""
         config_path = self._config_path(profile_id)
@@ -161,7 +165,9 @@ class ProfileStore:
         try:
             return self.get(profile_id)
         except FileNotFoundError:
-            profile = Profile(id=profile_id, name=profile_id, **defaults)
+            # 分离 name（get_or_create 语义：name 默认为 profile_id）
+            name = defaults.pop("name", profile_id)
+            profile = Profile(id=profile_id, name=name, **defaults)
             self.create(profile)
             return profile
 
@@ -192,13 +198,16 @@ class ProfileStore:
         import zipfile
 
         with zipfile.ZipFile(source_zip, "r") as zf:
-            # 读 config 确定原 id
-            config_raw = zf.read("profiles/*/config.yaml").decode("utf-8")
-            import re
-            match = re.search(r"profiles/([^/]+)/", list(zf.namelist())[0])
-            if not match:
-                raise ValueError("Invalid profile zip format")
-            old_id = match.group(1)
+            # 找到 config.yaml 路径（zipfile 不支持 glob）
+            config_name = None
+            old_id = None
+            for name in zf.namelist():
+                if name.endswith("config.yaml") and "/" in name:
+                    config_name = name
+                    old_id = name.split("/")[1]
+                    break
+            if not config_name:
+                raise ValueError("Invalid profile zip format: no config.yaml found")
             target_id = new_id or old_id
 
             # 解压到新目录
@@ -206,11 +215,18 @@ class ProfileStore:
             target_dir.mkdir(parents=True, exist_ok=True)
 
             for name in zf.namelist():
-                if name.endswith("/"):
+                if not name:
                     continue
-                # 重命名路径中的旧 id → 新 id
-                new_name = name.replace(f"profiles/{old_id}/", f"profiles/{target_id}/", 1)
-                target_path = self.base_dir.parent / new_name
+                info = zf.getinfo(name)
+                if info.is_dir():
+                    continue
+                # name = "<profile_id>/config.yaml"（export 用 arcname = file_path.relative_to(base_dir.parent)）
+                # parts = [profile_id, config.yaml]
+                parts = name.split("/")
+                if len(parts) < 2:
+                    continue
+                parts[0] = target_id  # old_id → target_id
+                target_path = self.base_dir.joinpath(*parts)
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(name) as src, open(target_path, "wb") as dst:
                     dst.write(src.read())

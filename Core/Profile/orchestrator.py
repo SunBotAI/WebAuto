@@ -13,7 +13,8 @@ from typing import Optional, Dict, List
 
 from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
 
-from .profile import Profile, ProfileStatus, ProfileStore
+from .profile import Profile, ProfileStatus
+from .store import ProfileStore
 
 
 class BrowserOrchestrator:

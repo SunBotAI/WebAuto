@@ -13,7 +13,8 @@ from enum import Enum
 from typing import Optional, Dict, List
 from contextlib import asynccontextmanager
 
-from .profile import Profile, ProfileStatus, ProfileStore
+from .profile import Profile, ProfileStatus
+from .store import ProfileStore
 
 
 class AcquireStrategy(Enum):
