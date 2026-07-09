@@ -12,6 +12,17 @@ Profile = 指纹 + 网络 + 标签 + 状态
 - pool.py         : Profile 池（借/还/轮换策略）
 """
 
+import warnings
+
+warnings.warn(
+    "Core/Profile is the canonical module. "
+    "Core/BrowserProfile is deprecated and will be removed in a future release. "
+    "Migrate usages to Core.Profile: "
+    "  from Core.Profile import Profile, FingerprintConfig, NetworkConfig, ProfileStore",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
 from .profile import Profile, FingerprintConfig, NetworkConfig, ProfileStatus
 from .fingerprint_gen import FingerprintGenerator
 from .store import ProfileStore
