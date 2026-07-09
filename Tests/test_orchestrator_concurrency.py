@@ -37,7 +37,7 @@ class TestPerProfileConcurrency:
             profiles = []
             for i in range(5):
                 p = Profile(id=f"profile-{i}")
-                p.storage_dir = Path(tmpdir) / f"profile-{i}"
+                store.create(p)
                 profiles.append(p)
 
             async def mock_new_context(**kwargs):
@@ -80,7 +80,7 @@ class TestPerProfileConcurrency:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = ProfileStore(base_dir=Path(tmpdir))
             profile = Profile(id="duplicate-test")
-            profile.storage_dir = Path(tmpdir) / "duplicate-test"
+            store.create(profile)
 
             create_count = 0
 

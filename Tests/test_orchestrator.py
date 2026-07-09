@@ -36,13 +36,13 @@ def store(tmpdir):
 
 
 @pytest.fixture
-def profiles(tmpdir):
-    """3 个独立 Profile"""
+def profiles(store):
+    """3 个独立 Profile（已在 store 中创建）"""
     out = []
     for i in range(3):
         p = Profile(id=f"profile-{i}", name=f"Profile {i}")
-        p.storage_dir = tmpdir / f"profile-{i}"
         p.fingerprint.screen_resolution = (1920, 1080)
+        store.create(p)  # 创建目录 + 写入文件
         out.append(p)
     return out
 
@@ -59,7 +59,7 @@ def mock_playwright_and_browser():
         mock_contexts[profile_id] = ctx
         return ctx
 
-    mock_browser.new_context = AsyncMock(side_effect=lambda **kw: make_context(kw.get("user_data_dir", "").split("/")[-1]))
+    mock_browser.new_context = AsyncMock(side_effect=lambda **kw: make_context(kw.get("_profile_id", "")))
     mock_browser.close = AsyncMock()
     mock_browser.process = MagicMock()
     mock_browser.process.pid = 12345
@@ -170,12 +170,12 @@ class TestMaxConcurrentQueueing:
             orch._playwright = mock_pw
 
             p1 = Profile(id="close-slot-1")
-            p1.storage_dir = tmpdir / "close-slot-1"
             p1.fingerprint.screen_resolution = (1920, 1080)
+            store.create(p1)
 
             p2 = Profile(id="close-slot-2")
-            p2.storage_dir = tmpdir / "close-slot-2"
             p2.fingerprint.screen_resolution = (1920, 1080)
+            store.create(p2)
 
             ctx1 = await orch.get_context(p1)
             assert ctx1 is not None
@@ -213,8 +213,8 @@ class TestMemoryLimit:
             orch._get_browser_memory_bytes = lambda: MEMORY_LIMIT_BYTES + 100 * 1024 * 1024
 
             p = Profile(id="mem-test")
-            p.storage_dir = tmpdir / "mem-test"
             p.fingerprint.screen_resolution = (1920, 1080)
+            store.create(p)
 
             with pytest.raises(MemoryError) as exc_info:
                 await orch.get_context(p)
@@ -243,8 +243,8 @@ class TestMemoryLimit:
             orch._get_browser_memory_bytes = lambda: 512 * 1024 * 1024
 
             p = Profile(id="mem-ok")
-            p.storage_dir = tmpdir / "mem-ok"
             p.fingerprint.screen_resolution = (1920, 1080)
+            store.create(p)
 
             # 不应抛异常
             ctx = await orch.get_context(p)

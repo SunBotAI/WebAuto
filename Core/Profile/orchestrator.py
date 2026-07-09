@@ -190,12 +190,12 @@ class BrowserOrchestrator:
                         # 首次启动：使用当前 profile 的 browser_args
                         await self.start(browser_args=profile.browser_args)
 
-                user_data_dir = profile.get_user_data_dir()
-                user_data_dir.mkdir(parents=True, exist_ok=True)
-
                 # T-057: extensions（支持 .crx 路径列表）
+                # 注意：user_data_dir 只在 launch_persistent_context() 支持，
+                # new_context() 天然有独立 Cookie/localStorage/IndexedDB 隔离
                 ctx_options: dict = {
-                    "user_data_dir": str(user_data_dir),
+                    # 内部字段：帮助单元测试 mock 从 kwargs 识别 profile_id
+                    "_profile_id": profile.id,
                     "viewport": {
                         "width": profile.fingerprint.screen_resolution[0],
                         "height": profile.fingerprint.screen_resolution[1],
