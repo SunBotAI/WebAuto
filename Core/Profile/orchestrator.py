@@ -194,7 +194,7 @@ class BrowserOrchestrator:
                 # 注意：user_data_dir 只在 launch_persistent_context() 支持，
                 # new_context() 天然有独立 Cookie/localStorage/IndexedDB 隔离
                 ctx_options: dict = {
-                    # 内部字段：帮助单元测试 mock 从 kwargs 识别 profile_id
+                    # 内部字段：帮助单元测试 mock 从 kwargs 识别 profile_id（不传给 Playwright）
                     "_profile_id": profile.id,
                     "viewport": {
                         "width": profile.fingerprint.screen_resolution[0],
@@ -209,7 +209,9 @@ class BrowserOrchestrator:
                 if profile.extensions:
                     ctx_options["extensions"] = profile.extensions
 
-                ctx = await self._browser.new_context(**ctx_options)
+                # 过滤内部字段（不传给 Playwright）
+                ctx_kwargs = {k: v for k, v in ctx_options.items() if not k.startswith("_")}
+                ctx = await self._browser.new_context(**ctx_kwargs)
 
                 # 注入反检测脚本
                 await self._inject_anti_detect(ctx, profile)

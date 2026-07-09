@@ -59,7 +59,7 @@ def mock_playwright_and_browser():
         mock_contexts[profile_id] = ctx
         return ctx
 
-    mock_browser.new_context = AsyncMock(side_effect=lambda **kw: make_context(kw.get("_profile_id", "")))
+    mock_browser.new_context = AsyncMock(side_effect=lambda **kw: make_context(kw.get("user_agent", "").split("/")[-1]))
     mock_browser.close = AsyncMock()
     mock_browser.process = MagicMock()
     mock_browser.process.pid = 12345
