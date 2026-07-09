@@ -8,13 +8,20 @@ Core/Profile/orchestrator.py — 浏览器编排器
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional, Dict, List
 
+import psutil
 from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
 
 from .profile import Profile, ProfileStatus
 from .store import ProfileStore
+
+logger = logging.getLogger(__name__)
+
+# 2GB 内存阈值
+MEMORY_LIMIT_BYTES = 2 * 1024 * 1024 * 1024  # 2GB
 
 
 class BrowserOrchestrator:
@@ -32,19 +39,42 @@ class BrowserOrchestrator:
         headless: bool = True,
         chromium_path: Optional[str] = None,
         max_concurrent: int = 5,
+        memory_limit_bytes: int = MEMORY_LIMIT_BYTES,
     ):
         self.store = store
         self.headless = headless
         self.chromium_path = chromium_path or self._default_chromium()
         self.max_concurrent = max_concurrent
+        self.memory_limit_bytes = memory_limit_bytes
 
         self._playwright: Optional[Playwright] = None
         self._browser: Optional[Browser] = None
         self._contexts: Dict[str, BrowserContext] = {}
         self._context_locks: Dict[str, asyncio.Lock] = {}
         self._global_lock = asyncio.Lock()
+        # T-059: per-profile lock（替代全局锁），不同 Profile 可真正并发
+        self._semaphore: Optional[asyncio.Semaphore] = None
 
     # ─── 生命周期 ──────────────────────────────────────────────
+
+    def _get_browser_memory_bytes(self) -> int:
+        """获取 Chromium 主进程内存占用（RSS），单位字节。"""
+        if self._browser is None:
+            return 0
+        try:
+            process = psutil.Process(self._browser.process.pid)
+            return process.memory_info().rss
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return 0
+
+    def _check_memory(self) -> None:
+        """检查内存超限，超限则抛异常拒绝新 Context。"""
+        mem = self._get_browser_memory_bytes()
+        if mem > self.memory_limit_bytes:
+            raise MemoryError(
+                f"Chromium memory {mem / 1024 / 1024:.0f}MB exceeds limit "
+                f"{self.memory_limit_bytes / 1024 / 1024:.0f}MB, rejecting new Context"
+            )
 
     async def start(self) -> None:
         """启动共享的 Chromium 进程"""
@@ -65,6 +95,7 @@ class BrowserOrchestrator:
                 "--window-size=1920,1080",
             ],
         )
+        self._semaphore = asyncio.Semaphore(self.max_concurrent)
 
     async def stop(self) -> None:
         """关闭所有 Context 和 Browser"""
@@ -108,6 +139,10 @@ class BrowserOrchestrator:
         - proxy 来自 profile.network
         - AntiDetect 脚本注入
 
+        容量控制：
+        - max_concurrent semaphore：超过并发阈值的请求排队等待
+        - memory limit：Chromium 进程 RSS 超过 2GB 时拒绝新 Context 并报警
+
         T-059: per-profile lock 保证同一 Profile 并发 acquire 不会重复创建 Context；
         不同 Profile 之间完全并发，实现 5 账号真并发启动。
         """
@@ -121,35 +156,49 @@ class BrowserOrchestrator:
             if profile.id in self._contexts:
                 return self._contexts[profile.id]
 
-            # browser 启动仍需 global lock（共享进程，只能一个启动）
-            async with self._global_lock:
-                if self._browser is None:
-                    await self.start()
+            # max_concurrent 排队控制
+            if self._semaphore is None:
+                self._semaphore = asyncio.Semaphore(self.max_concurrent)
+            await self._semaphore.acquire()
 
-            user_data_dir = profile.get_user_data_dir()
-            user_data_dir.mkdir(parents=True, exist_ok=True)
+            # 内存检查：超限拒绝新 Context
+            self._check_memory()
 
-            ctx = await self._browser.new_context(
-                user_data_dir=str(user_data_dir),
-                viewport={
-                    "width": profile.fingerprint.screen_resolution[0],
-                    "height": profile.fingerprint.screen_resolution[1],
-                },
-                user_agent=profile.fingerprint.user_agent,
-                locale=profile.fingerprint.locale,
-                timezone_id=profile.fingerprint.timezone,
-                proxy=self._get_playwright_proxy(profile),
-                color_scheme="light",
-            )
+            try:
+                # browser 启动仍需 global lock（共享进程，只能一个启动）
+                async with self._global_lock:
+                    if self._browser is None:
+                        await self.start()
 
-            # 注入反检测脚本
-            await self._inject_anti_detect(ctx, profile)
+                user_data_dir = profile.get_user_data_dir()
+                user_data_dir.mkdir(parents=True, exist_ok=True)
 
-            self._contexts[profile.id] = ctx
-            profile.status = ProfileStatus.RUNNING
-            self.store.save(profile)
+                ctx = await self._browser.new_context(
+                    user_data_dir=str(user_data_dir),
+                    viewport={
+                        "width": profile.fingerprint.screen_resolution[0],
+                        "height": profile.fingerprint.screen_resolution[1],
+                    },
+                    user_agent=profile.fingerprint.user_agent,
+                    locale=profile.fingerprint.locale,
+                    timezone_id=profile.fingerprint.timezone,
+                    proxy=self._get_playwright_proxy(profile),
+                    color_scheme="light",
+                )
 
-            return ctx
+                # 注入反检测脚本
+                await self._inject_anti_detect(ctx, profile)
+
+                self._contexts[profile.id] = ctx
+                profile.status = ProfileStatus.RUNNING
+                self.store.save(profile)
+
+                return ctx
+
+            except Exception:
+                # 创建失败要释放 semaphore 配额
+                self._semaphore.release()
+                raise
 
     async def warmup(
         self,
@@ -187,6 +236,9 @@ class BrowserOrchestrator:
             await ctx.close()
             profile.status = ProfileStatus.READY
             self.store.save(profile)
+            # 释放一个并发槽位
+            if self._semaphore is not None:
+                self._semaphore.release()
 
     # ─── 反检测注入 ────────────────────────────────────────────
 

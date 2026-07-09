@@ -7,7 +7,7 @@ import sys
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -34,7 +34,6 @@ class TestPerProfileConcurrency:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = ProfileStore(base_dir=Path(tmpdir))
 
-            # 创建 5 个不同 Profile，并分配 storage_dir
             profiles = []
             for i in range(5):
                 p = Profile(id=f"profile-{i}")
@@ -42,33 +41,31 @@ class TestPerProfileConcurrency:
                 profiles.append(p)
 
             async def mock_new_context(**kwargs):
-                # 模拟创建耗时 50ms
                 await asyncio.sleep(0.05)
-                mock_ctx = AsyncMock()
-                mock_ctx.add_init_script = AsyncMock()
-                return mock_ctx
+                ctx = AsyncMock()
+                ctx.add_init_script = AsyncMock()
+                return ctx
 
             mock_browser = AsyncMock()
             mock_browser.new_context = mock_new_context
             mock_browser.close = AsyncMock()
+            mock_browser.process = MagicMock()
+            mock_browser.process.pid = 12345
 
-            mock_playwright = AsyncMock()
-            mock_playwright.chromium = AsyncMock()
-            mock_playwright.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_playwright.stop = AsyncMock()
+            mock_pw = AsyncMock()
+            mock_pw.chromium = AsyncMock()
+            mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+            mock_pw.stop = AsyncMock()
 
             orch = BrowserOrchestrator(store=store, headless=True)
             orch._browser = mock_browser
-            orch._playwright = mock_playwright
+            orch._playwright = mock_pw
+            orch._semaphore = asyncio.Semaphore(5)
 
-            # 并发获取 5 个不同 Profile 的 context
             start = asyncio.get_event_loop().time()
-            await asyncio.gather(*[
-                orch.get_context(p) for p in profiles
-            ])
+            await asyncio.gather(*[orch.get_context(p) for p in profiles])
             total_time = asyncio.get_event_loop().time() - start
 
-            # 断言：真并发应 < 150ms，串行会 >= 250ms
             assert total_time < 0.15, (
                 f"5 个 Profile 并发 acquire 耗时 {total_time:.3f}s，"
                 f"疑似串行（真并发应 < 0.15s）"
@@ -91,30 +88,31 @@ class TestPerProfileConcurrency:
                 nonlocal create_count
                 create_count += 1
                 await asyncio.sleep(0.05)
-                mock_ctx = AsyncMock()
-                mock_ctx.add_init_script = AsyncMock()
-                return mock_ctx
+                ctx = AsyncMock()
+                ctx.add_init_script = AsyncMock()
+                return ctx
 
             mock_browser = AsyncMock()
             mock_browser.new_context = mock_new_context
             mock_browser.close = AsyncMock()
+            mock_browser.process = MagicMock()
+            mock_browser.process.pid = 12345
 
-            mock_playwright = AsyncMock()
-            mock_playwright.chromium = AsyncMock()
-            mock_playwright.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_playwright.stop = AsyncMock()
+            mock_pw = AsyncMock()
+            mock_pw.chromium = AsyncMock()
+            mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+            mock_pw.stop = AsyncMock()
 
             orch = BrowserOrchestrator(store=store, headless=True)
             orch._browser = mock_browser
-            orch._playwright = mock_playwright
+            orch._playwright = mock_pw
+            orch._semaphore = asyncio.Semaphore(5)
 
-            # 5 个协程同时请求同一 Profile
             await asyncio.gather(*[
                 orch.get_context(profile)
                 for _ in range(5)
             ])
 
-            # 应该只创建了 1 次 Context
             assert create_count == 1, (
                 f"同一 Profile 并发 acquire 应只创建 1 个 Context，"
                 f"实际创建了 {create_count} 次"
