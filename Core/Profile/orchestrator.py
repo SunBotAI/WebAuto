@@ -76,24 +76,38 @@ class BrowserOrchestrator:
                 f"{self.memory_limit_bytes / 1024 / 1024:.0f}MB, rejecting new Context"
             )
 
-    async def start(self) -> None:
-        """启动共享的 Chromium 进程"""
+    async def start(self, browser_args: Optional[List[str]] = None) -> None:
+        """启动共享的 Chromium 进程
+
+        Args:
+            browser_args: 合并所有 Profile 的 browser_args 后去重传入 launch()
+        """
         if self._browser is not None:
             return
+
+        base_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--no-first-run",
+            "--no-zygote",
+            "--window-size=1920,1080",
+        ]
+        if browser_args:
+            # 合并 Profile 级别的自定义 args，去重保留顺序
+            seen = set(x.split("=")[0] for x in base_args)
+            for arg in browser_args:
+                key = arg.split("=")[0]
+                if key not in seen:
+                    base_args.append(arg)
+                    seen.add(key)
 
         self._playwright = await async_playwright().start()
         self._browser = await self._playwright.chromium.launch(
             executable_path=self.chromium_path,
             headless=self.headless,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--no-first-run",
-                "--no-zygote",
-                "--window-size=1920,1080",
-            ],
+            args=base_args,
         )
         self._semaphore = asyncio.Semaphore(self.max_concurrent)
 
@@ -138,6 +152,7 @@ class BrowserOrchestrator:
         - viewport / user_agent / locale / timezone 来自 profile.fingerprint
         - proxy 来自 profile.network
         - AntiDetect 脚本注入
+        - extensions 来自 profile.extensions（.crx 扩展目录列表）
 
         容量控制：
         - max_concurrent semaphore：超过并发阈值的请求排队等待
@@ -168,23 +183,33 @@ class BrowserOrchestrator:
                 # browser 启动仍需 global lock（共享进程，只能一个启动）
                 async with self._global_lock:
                     if self._browser is None:
-                        await self.start()
+                        # 合并所有已加载 Profile 的 browser_args
+                        all_args: List[str] = []
+                        for p_id in self._contexts:
+                            pass  # 第一启动时尚无 context，browser_args 由第一 profile 决定
+                        # 首次启动：使用当前 profile 的 browser_args
+                        await self.start(browser_args=profile.browser_args)
 
                 user_data_dir = profile.get_user_data_dir()
                 user_data_dir.mkdir(parents=True, exist_ok=True)
 
-                ctx = await self._browser.new_context(
-                    user_data_dir=str(user_data_dir),
-                    viewport={
+                # T-057: extensions（支持 .crx 路径列表）
+                ctx_options: dict = {
+                    "user_data_dir": str(user_data_dir),
+                    "viewport": {
                         "width": profile.fingerprint.screen_resolution[0],
                         "height": profile.fingerprint.screen_resolution[1],
                     },
-                    user_agent=profile.fingerprint.user_agent,
-                    locale=profile.fingerprint.locale,
-                    timezone_id=profile.fingerprint.timezone,
-                    proxy=self._get_playwright_proxy(profile),
-                    color_scheme="light",
-                )
+                    "user_agent": profile.fingerprint.user_agent,
+                    "locale": profile.fingerprint.locale,
+                    "timezone_id": profile.fingerprint.timezone,
+                    "proxy": self._get_playwright_proxy(profile),
+                    "color_scheme": "light",
+                }
+                if profile.extensions:
+                    ctx_options["extensions"] = profile.extensions
+
+                ctx = await self._browser.new_context(**ctx_options)
 
                 # 注入反检测脚本
                 await self._inject_anti_detect(ctx, profile)
@@ -197,7 +222,8 @@ class BrowserOrchestrator:
 
             except Exception:
                 # 创建失败要释放 semaphore 配额
-                self._semaphore.release()
+                if self._semaphore is not None:
+                    self._semaphore.release()
                 raise
 
     async def warmup(
