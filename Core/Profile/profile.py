@@ -28,7 +28,9 @@ class ProfileStatus(Enum):
 @dataclass
 class NetworkConfig:
     """代理 + 网络配置"""
-    proxy_url: Optional[str] = None              # "http://user:pass@host:port"
+    proxy_url: Optional[str] = None              # "http://user:pass@host:port" 或 "http://host:port"
+    proxy_username: Optional[str] = None          # 住宅代理认证用户名（优先于 URL 内嵌）
+    proxy_password: Optional[str] = None          # 住宅代理认证密码（优先于 URL 内嵌）
     proxy_type: str = "http"                     # http | socks5
     geoip_country: Optional[str] = None          # "US" | "CN" | ...
     dns_over_https: bool = True
@@ -40,15 +42,47 @@ class NetworkConfig:
     def from_dict(cls, data: dict) -> "NetworkConfig":
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
-    def get_playwright_proxy(self) -> Optional[dict]:
-        """返回 Playwright new_context 的 proxy 字段"""
+    def get_playwright_proxy(self) -> Optional[tuple]:
+        """
+        返回 Playwright proxy 配置的三元组 (server, username, password)。
+
+        解析优先级：
+        1. proxy_url 内嵌认证（http://user:pass@host:port）
+        2. 显式 proxy_username / proxy_password 字段
+        """
         if not self.proxy_url:
             return None
-        return {
-            "server": self.proxy_url,
-            "username": None,
-            "password": None,
-        }
+
+        # 先尝试从 URL 内嵌解析
+        url = self.proxy_url
+        username: Optional[str] = None
+        password: Optional[str] = None
+
+        if "://" in url:
+            scheme, rest = url.split("://", 1)
+            if "@" in rest:
+                credentials, host_port = rest.rsplit("@", 1)
+                if ":" in credentials:
+                    username, password = credentials.split(":", 1)
+                # URL 内嵌优先；若显式字段也有值，显式字段覆盖
+                if self.proxy_username is not None:
+                    username = self.proxy_username
+                if self.proxy_password is not None:
+                    password = self.proxy_password
+                # 重构为无认证的 server URL
+                server = f"{scheme}://{host_port}"
+            else:
+                server = url
+                if self.proxy_username is not None:
+                    username = self.proxy_username
+                if self.proxy_password is not None:
+                    password = self.proxy_password
+        else:
+            server = url
+            username = self.proxy_username
+            password = self.proxy_password
+
+        return (server, username, password)
 
 
 @dataclass

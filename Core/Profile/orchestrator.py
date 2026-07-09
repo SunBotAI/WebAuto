@@ -169,7 +169,7 @@ class BrowserOrchestrator:
             try:
                 from Core.TimeSync import TimeSync
                 ts = TimeSync()
-                await ts.sync()
+                await ts.calibrate()
             except Exception:
                 pass
 
@@ -218,7 +218,13 @@ class BrowserOrchestrator:
 
     @staticmethod
     def _get_playwright_proxy(profile: Profile) -> Optional[dict]:
-        """把 Profile.network 转换为 Playwright proxy 格式"""
-        if not profile.network.proxy_url:
+        """把 Profile.network 转换为 Playwright new_context 的 proxy 字段"""
+        result = profile.network.get_playwright_proxy()
+        if result is None:
             return None
-        return {"server": profile.network.proxy_url}
+        server, username, password = result
+        return {
+            "server": server,
+            "username": username,
+            "password": password,
+        }
