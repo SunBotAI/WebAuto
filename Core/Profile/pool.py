@@ -106,8 +106,19 @@ class ProfilePool:
         Args:
             profile: 借出的 Profile
             cooldown: 归还后冷却时间（秒），防风控
+
+        Note:
+            如果 profile 在持有期间被 ban() / archive()，status 会被设为 BANNED / ARCHIVED。
+            release() 不应覆盖这些终态，只对 READY / RUNNING / COOLDOWN 的 profile 正常操作。
         """
         profile.last_used = time.time()
+
+        # 不覆盖终态：BAN 和 ARCHIVED 保持不变
+        if profile.status in (ProfileStatus.BANNED, ProfileStatus.ARCHIVED):
+            self.store.save(profile)
+            async with self._lock:
+                self._in_use.pop(profile.id, None)
+            return
 
         if cooldown > 0:
             profile.status = ProfileStatus.COOLDOWN

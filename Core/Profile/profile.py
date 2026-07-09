@@ -263,3 +263,43 @@ class Profile:
         cfg.screen_width, cfg.screen_height = self.fingerprint.screen_resolution
         cfg.hardware_concurrency = self.fingerprint.hardware_concurrency
         cfg.device_memory = self.fingerprint.device_memory
+
+    # ─── ban / archive / restore ───────────────────────────────
+
+    def ban(self, store: "ProfileStore" = None) -> None:
+        """
+        标记为 BANNED（风控封禁）。
+
+        封禁后：
+        - ProfilePool._is_available() 会拒绝借出
+        - 状态持久化（传 store 则调用 store.save()，否则只改内存）
+        - 如果正在被 pool 持有，下一次 release() 会发现状态异常（由调用方负责释放）
+        """
+        self.status = ProfileStatus.BANNED
+        if store is not None:
+            store.save(self)
+
+    def archive(self, store: "ProfileStore" = None) -> None:
+        """
+        归档 Profile（不删除数据）。
+
+        归档后：
+        - ProfilePool._is_available() 会拒绝借出
+        - 不占用 active 槽位
+        - 数据保留在 storage_dir，可通过 restore() 恢复
+        """
+        self.status = ProfileStatus.ARCHIVED
+        if store is not None:
+            store.save(self)
+
+    def restore(self, store: "ProfileStore" = None) -> None:
+        """
+        恢复 BANNED / ARCHIVED Profile 到 READY 状态。
+
+        恢复后 Profile 可重新被 ProfilePool 借出。
+        """
+        if self.status not in (ProfileStatus.BANNED, ProfileStatus.ARCHIVED):
+            raise ValueError(f"Profile {self.id} is {self.status.value}, not banned/archived")
+        self.status = ProfileStatus.READY
+        if store is not None:
+            store.save(self)
