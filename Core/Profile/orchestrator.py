@@ -246,9 +246,9 @@ class BrowserOrchestrator:
         """注入 Profile 专属的反检测脚本"""
         from Core.AntiDetect import AntiDetectConfig, AntiDetectInjector
 
-        cfg = AntiDetectConfig(
-            fingerprint_seed=profile.fingerprint.get_anti_detect_seed(),
-        )
+        cfg = AntiDetectConfig()
+        # FINGERPRINT-006: 同步全部 7 项字段（seed + locale/timezone/platform/vendor/screen/hardware）
+        profile.apply_to_antidetect(cfg)
 
         injector = AntiDetectInjector(cfg)
         init_script = injector.get_inject_script()
