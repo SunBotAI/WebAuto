@@ -238,8 +238,28 @@ class Profile:
 
     def apply_to_antidetect(self, cfg: "AntiDetectConfig") -> None:
         """
-        把 fingerprint 同步到 AntiDetectConfig
-        确保 Profile 级别的 canvas_seed 强制覆盖 AntiDetect 的 seed
+        把 fingerprint 同步到 AntiDetectConfig（7 项全量同步）。
+
+        确保 Profile 级别的 canvas_seed 强制覆盖 AntiDetect 的 seed，
+        并且 locale / timezone / screen / hardwareConcurrency 等也同步到 AntiDetectConfig
+       （供 JS 注入脚本读取，实现真正的跨启动一致性）。
+
+        同步的 7 项：
+        1. fingerprint_seed → cfg.fingerprint_seed（Canvas/WebGL/Audio seed）
+        2. locale          → cfg.navigator_locale（navigator.language）
+        3. timezone        → cfg.timezone（Intl.DateTimeFormat）
+        4. platform        → cfg.navigator_platform（navigator.platform）
+        5. vendor          → cfg.webgl_vendor（WebGL UNMASKED_VENDOR_WEBGL）
+        6. screen_resolution → cfg.screen_width / cfg.screen_height
+        7. hardware_concurrency → cfg.hardware_concurrency
         """
         cfg.fingerprint_seed = self.fingerprint.get_anti_detect_seed()
-        # 其他字段根据需要同步
+
+        # T-011: 7 项字段同步
+        cfg.navigator_locale = self.fingerprint.locale
+        cfg.timezone = self.fingerprint.timezone
+        cfg.navigator_platform = self.fingerprint.platform
+        cfg.webgl_vendor = self.fingerprint.vendor
+        cfg.screen_width, cfg.screen_height = self.fingerprint.screen_resolution
+        cfg.hardware_concurrency = self.fingerprint.hardware_concurrency
+        cfg.device_memory = self.fingerprint.device_memory

@@ -107,17 +107,24 @@ class BrowserOrchestrator:
         - viewport / user_agent / locale / timezone 来自 profile.fingerprint
         - proxy 来自 profile.network
         - AntiDetect 脚本注入
+
+        T-059: per-profile lock 保证同一 Profile 并发 acquire 不会重复创建 Context；
+        不同 Profile 之间完全并发，实现 5 账号真并发启动。
         """
         if profile.id in self._contexts:
             return self._contexts[profile.id]
 
-        async with self._global_lock:
-            # 双重检查
+        # T-059: per-profile lock（不是 global lock），不同 Profile 可并发创建 Context
+        profile_lock = self._context_locks.setdefault(profile.id, asyncio.Lock())
+        async with profile_lock:
+            # 双重检查（获取锁后其他协程可能已经创建好了）
             if profile.id in self._contexts:
                 return self._contexts[profile.id]
 
-            if self._browser is None:
-                await self.start()
+            # browser 启动仍需 global lock（共享进程，只能一个启动）
+            async with self._global_lock:
+                if self._browser is None:
+                    await self.start()
 
             user_data_dir = profile.get_user_data_dir()
             user_data_dir.mkdir(parents=True, exist_ok=True)

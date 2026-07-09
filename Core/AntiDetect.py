@@ -60,6 +60,18 @@ class AntiDetectConfig:
     # —— 同 seed 同 context 内完全一致,跨 context 可控。若为 None 走随机。
     fingerprint_seed: Optional[int] = None
 
+    # === T-011: Profile 7 项字段同步 (2026-07) ===
+    # 来自 FingerprintConfig，供 JS 注入脚本读取
+    navigator_locale: Optional[str] = None    # e.g. "zh-CN"
+    timezone: Optional[str] = None             # e.g. "Asia/Shanghai"
+    navigator_platform: Optional[str] = None   # e.g. "Win64"
+    webgl_vendor: Optional[str] = None         # e.g. "Google Inc."
+    webgl_renderer: Optional[str] = None       # e.g. "Intel Iris OpenGL Engine"
+    screen_width: Optional[int] = None         # e.g. 1920
+    screen_height: Optional[int] = None        # e.g. 1080
+    hardware_concurrency: Optional[int] = None # e.g. 8
+    device_memory: Optional[int] = None        # e.g. 8
+
 
 class AntiDetectInjector:
     """反检测注入器 - 注入到 Playwright 页面/上下文"""
@@ -572,7 +584,11 @@ class AntiDetectInjector:
         """
 
     def _consistent_hardware_script(self):
-        """screen / hardwareConcurrency / deviceMemory 一致化(同 context 稳定)。"""
+        """screen / hardwareConcurrency / deviceMemory 一致化(同 context 稳定)。
+
+        T-011: 优先用 config 里的同步值（来自 FingerprintConfig），
+        若未设置则走随机（向后兼容）。
+        """
         import random as _r
         cores_choices = [4, 8, 12, 16]
         memory_choices = [4, 8, 16]
@@ -581,10 +597,15 @@ class AntiDetectInjector:
             (1920, 1080, 24), (2560, 1440, 24), (1366, 768, 24),
             (1440, 900, 24),  (1680, 1050, 24), (1280, 800, 24),
         ]
-        cores = _r.choice(cores_choices)
-        mem   = _r.choice(memory_choices)
+        # T-011: 优先用 Profile 同步值，否则随机
+        cores = self.config.hardware_concurrency if self.config.hardware_concurrency else _r.choice(cores_choices)
+        mem   = self.config.device_memory        if self.config.device_memory        else _r.choice(memory_choices)
         dpr   = _r.choice(dpr_choices)
-        sw, sh, depth = _r.choice(screens)
+        if self.config.screen_width and self.config.screen_height:
+            sw, sh = self.config.screen_width, self.config.screen_height
+            depth = 24
+        else:
+            sw, sh, depth = _r.choice(screens)
         return f"""
         (function(){{
             try {{
@@ -596,7 +617,7 @@ class AntiDetectInjector:
                 }});
                 const fakeScreen = {{
                     width: {sw}, height: {sh},
-                    availWidth: {sw}, availHeight: {sh - 40},
+                    availWidth: {sw}, availHeight: {{sh - 40}},
                     colorDepth: {depth}, pixelDepth: {depth},
                     orientation: {{ type: 'landscape-primary', angle: 0 }},
                 }};
@@ -615,36 +636,66 @@ class AntiDetectInjector:
         """
 
     def _locale_consistency_script(self):
-        """Intl.DateTimeFormat timezone 与 navigator.language 一致。"""
-        return r"""
-        (function(){
-            try {
-                const locale = navigator.language || 'zh-CN';
-                let tz = 'Asia/Shanghai';
-                try {
+        """Intl.DateTimeFormat timezone 与 navigator.language 一致。
+
+        T-011: 优先用 config.timezone / config.navigator_locale（来自 FingerprintConfig）。
+        """
+        locale = self.config.navigator_locale if self.config.navigator_locale else 'zh-CN'
+        tz     = self.config.timezone         if self.config.timezone          else 'Asia/Shanghai'
+        platform = self.config.navigator_platform if self.config.navigator_platform else 'Win64'
+        return f"""
+        (function(){{
+            try {{
+                const locale = '{locale}';
+                const tz = '{tz}';
+                try {{
                     const opts = new Intl.DateTimeFormat().resolvedOptions();
-                    if (opts && opts.timeZone) tz = opts.timeZone;
-                } catch(e) {}
+                    if (opts && opts.timeZone) {{ /* tz already set from config */ }}
+                }} catch(e) {{}}
                 const _origDTF = Intl.DateTimeFormat;
-                Intl.DateTimeFormat = function(loc, opts) {
-                    opts = Object.assign({}, opts || {});
+                Intl.DateTimeFormat = function(loc, opts) {{
+                    opts = Object.assign({{}}, opts || {{}});
                     if (opts.timeZone === undefined) opts.timeZone = tz;
                     return new _origDTF(loc, opts);
-                };
+                }};
                 Intl.DateTimeFormat.prototype = _origDTF.prototype;
                 Intl.DateTimeFormat.supportedLocalesOf = _origDTF.supportedLocalesOf;
-                try {
-                    Object.defineProperty(document.documentElement, 'lang', {
+                try {{
+                    Object.defineProperty(navigator, 'language', {{
                         get: () => locale, configurable: true,
-                    });
-                } catch(e) {}
-            } catch(e) {}
-        })();
+                    }});
+                    Object.defineProperty(navigator, 'languages', {{
+                        get: () => [locale, locale.split('-')[0], 'en-US', 'en'], configurable: true,
+                    }});
+                }} catch(e) {{}}
+                try {{
+                    Object.defineProperty(document.documentElement, 'lang', {{
+                        get: () => locale, configurable: true,
+                    }});
+                }} catch(e) {{}}
+                // T-011: navigator.platform 同步
+                try {{
+                    Object.defineProperty(navigator, 'platform', {{
+                        get: () => '{platform}', configurable: true,
+                    }});
+                }} catch(e) {{}}
+            }} catch(e) {{}}
+        }})();
         """
 
     def _fingerprint_v2_script(self):
-        """Canvas 2D + WebGL 噪声(stable seed),替代 _fingerprint_random_script 的新版本。"""
+        """Canvas 2D + WebGL 噪声(stable seed),替代 _fingerprint_random_script 的新版本。
+
+        T-011: webgl_vendor / webgl_renderer 优先用 config 的同步值（来自 FingerprintConfig）。
+        """
         seed_js = self._fingerprint_seed_js()
+        # T-011: vendor 优先用 config 同步值
+        vendor = self.config.webgl_vendor if self.config.webgl_vendor else None
+        renderer = self.config.webgl_renderer if self.config.webgl_renderer else None
+        if vendor is None:
+            vendor = "Intel Inc."
+        if renderer is None:
+            renderer = "Intel Iris OpenGL Engine"
         return f"""
         (function(){{
             const __seedFn = {seed_js};
@@ -671,33 +722,21 @@ class AntiDetectInjector:
             }} catch(e) {{}}
 
             // ==== WebGL 渲染器/供应商 stable 随机化 ====
-            try {{
-                const VENDORS = ['Intel Inc.', 'Apple Inc.', 'NVIDIA Corporation',
-                                 'Advanced Micro Devices, Inc.', 'ARM'];
-                const RENDERERS = [
-                    'Apple M1', 'Apple M2',
-                    'Intel(R) UHD Graphics 630',
-                    'Intel(R) Iris(R) Plus Graphics 640',
-                    'NVIDIA GeForce GTX 1050',
-                    'Mesa Intel(R) UHD Graphics 620 (KBL GT2)',
-                    'AMD Radeon Pro 560X OpenGL Engine',
-                ];
-                const v = VENDORS[Math.floor(__seedFn() * VENDORS.length)];
-                const r = RENDERERS[Math.floor(__seedFn() * RENDERERS.length)];
-
-                const _setGetParam = function(proto) {{
-                    if (!proto) return;
-                    const _orig = proto.getParameter;
-                    proto.getParameter = function(p) {{
-                        if (p === 37445) return v;
-                        if (p === 37446) return r;
-                        return _orig.call(this, p);
-                    }};
+            // T-011: vendor/renderer 用 Profile 同步值
+            const v = '{vendor}';
+            const r = '{renderer}';
+            const _setGetParam = function(proto) {{
+                if (!proto) return;
+                const _orig = proto.getParameter;
+                proto.getParameter = function(p) {{
+                    if (p === 37445) return v;
+                    if (p === 37446) return r;
+                    return _orig.call(this, p);
                 }};
-                _setGetParam(WebGLRenderingContext.prototype);
-                if (window.WebGL2RenderingContext)
-                    _setGetParam(WebGL2RenderingContext.prototype);
-            }} catch(e) {{}}
+            }};
+            _setGetParam(WebGLRenderingContext.prototype);
+            if (window.WebGL2RenderingContext)
+                _setGetParam(window.WebGL2RenderingContext.prototype);
         }})();
         """
 
