@@ -74,10 +74,21 @@ class ProfilePool:
         """
         timeout = timeout or self._on_acquire_timeout
 
+        deadline = time.monotonic() + timeout
+
         async with self._semaphore:
-            profile = await self._select_profile(tag=tag)
-            if profile is None:
-                raise asyncio.TimeoutError(f"No available profile for tag={tag} after {timeout}s")
+            while True:
+                profile = await self._select_profile(tag=tag)
+                if profile is not None:
+                    break
+                # 没可用的，等待 cooldown 变化或被唤醒（重试）
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError(
+                        f"No available profile for tag={tag} after {timeout}s"
+                    )
+                # 等一小段时间再重试（避免 busy loop）
+                await asyncio.sleep(min(0.1, remaining))
 
             profile.status = ProfileStatus.RUNNING
             profile.last_used = time.time()
