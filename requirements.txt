@@ -5,6 +5,7 @@ playwright>=1.40.0
 
 # ========== HTTP 客户端 ==========
 httpx[http2]>=0.25.0
+curl_cffi>=0.15.0  # TLS 指纹模拟(impersonate chrome/firefox),过 sannysoft 检测
 brotli>=1.0.0  # 解 br 压缩(部分站点默认返回,如 example.com)
 
 # ========== HTML 解析 ==========
