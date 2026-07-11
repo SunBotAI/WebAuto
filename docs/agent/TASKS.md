@@ -27,10 +27,10 @@
 | XIAOQIAN-WEBAUTO-FINGERPRINT-011 | Spider checkpoint 暂停恢复 | 小千 | ✅ DONE | 2026-07-11 00:05 | commit `deb0ae3` 7/7 PASSED |
 | XIAOCE-WEBAUTO-T045 | test_orchestrator.py 智谱5账号并发 | 小测 | ✅ DONE | 2026-07-11 18:00 | 7/7 PASSED（commit b71b497）|
 | XIAOCE-WEBAUTO-T046 | test_pool.py 智谱5账号并发 | 小测 | ✅ DONE | 2026-07-11 18:00 | 14/14 PASSED（commit b71b497）|
-| XIAOQIAN-WEBAUTO-T092 | profile_backend bulk_update_tags / bulk_set_status | 小千 | 🟡 PENDING | 2026-07-16 | 10个id一次性加tag，YAML原子写 |
-| XIAOYUE-WEBAUTO-T094 | 合并 profile_panel+proxy_panel 入 webauto_web (7860)，停7862/7863 | 小月 | 🟡 PENDING | 2026-07-16 | 7860单端口跑完所有功能 |
-| XIAOYUE-WEBAUTO-T095 | 7860 Profile自动采集工作流（浏览器打开URL→输验证码→自动抓指纹入池）| 小月 | 🟡 PENDING | 2026-07-17 | 手动验证码后系统自动完成指纹采集 |
-| XIAOYUE-WEBAUTO-T096 | 标准Profile配置模板（从测试提取有效配置为预设）| 小月 | 🟡 PENDING | 2026-07-17 | 新建Profile可选"标准模板"一键填充 |
+| XIAOQIAN-WEBAUTO-T092 | profile_backend bulk_update_tags / bulk_set_status | 小千 | ✅ DONE | 2026-07-12 | 10个id一次性加tag，YAML原子写（commit fca34c3）|
+| XIAOYUE-WEBAUTO-T094 | 合并 profile_panel+proxy_panel 入 webauto_web (7860)，停7862/7863 | 小月 | ✅ DONE | 2026-07-12 | 7860单端口跑完所有功能（commit dfb4ce6，已停7862/7863进程）|
+| XIAOYUE-WEBAUTO-T095 | 7860 Profile自动采集工作流（浏览器打开URL→输验证码→自动抓指纹入池）| 小月 | ✅ DONE | 2026-07-12 | 手动验证码后系统自动完成指纹采集（commit 9106fb0）|
+| XIAOYUE-WEBAUTO-T096 | 标准Profile配置模板（从测试提取有效配置为预设）| 小月 | ✅ DONE | 2026-07-12 | 新建Profile可选"标准模板"一键填充（commit b632182）|
 | XIAOQIAN-WEBAUTO-T097 | 代理池策略可视化配置（geoip路由/失败切换/健康检测间隔）| 小千 | 🟡 PENDING | 2026-07-17 | 7860 Proxy Tab可配池策略+可视化状态 |
 
 ---
@@ -40,10 +40,10 @@
 | ID | 任务 | 责任人 | 状态 | 截止 |
 |----|------|--------|------|------|
 | T-092 | bulk_update_tags / bulk_set_status | 小千 | ✅ DONE（2026-07-11, commit fca34c3） | 2026-07-16 |
-| T-094 | 合并三端口入7860 | 小月 | 🟡 PENDING | 2026-07-16 |
+| T-094 | 合并三端口入7860 | 小月 | ✅ DONE（2026-07-12, commit dfb4ce6）| 2026-07-12 |
 | T-095 | Profile自动采集工作流 | 小月 | 🟡 PENDING | 2026-07-17 |
 | T-096 | 标准配置模板 | 小月 | 🟡 PENDING | 2026-07-17 |
-| T-097 | 代理池策略可视化 | 小千 | 🟡 PENDING | 2026-07-17 |
+| T-097 | 代理池策略可视化（geoip路由/健康检测/池可视化） | 小千 | ✅ DONE（2026-07-11, commit 67cd25c） | 2026-07-17 |
 
 ---
 
@@ -85,9 +85,11 @@
 - T-088 ✅ test_mcp_server.py（40/40，commit 85a6c7b，大白兜底代 push）
 
 ### v1.7 合并+自动化（2026-07-12 新）— 小千/小月
-- T-092 ⏳ profile_backend 批量操作（bulk_update_tags/set_status）
-- T-094 ⏳ 合并三端口入 7860，停 7862/7863
-- T-095 ⏳ Profile 自动采集工作流（浏览器→验证码→自动抓指纹）
+- T-092 ✅ profile_backend 批量操作（bulk_update_tags/set_status，commit fca34c3）
+- T-094 ✅ 合并三端口入 7860，停 7862/7863（commit dfb4ce6，已停旧进程）
+- T-095 ✅ Profile 自动采集工作流（commit 9106fb0，fingerprint_collector.py）
+- T-096 ✅ 标准配置模板（commit b632182，模板A/B）
+
 - T-096 ⏳ 标准配置模板（从测试提取有效配置）
 - T-097 ⏳ 代理池策略可视化配置
 
