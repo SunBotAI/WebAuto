@@ -196,6 +196,144 @@ await ts.sleep_until_server_time(target_timestamp)
 await ts.countdown(10.0)  # 10 秒倒计时
 ```
 
+## 🤖 MCP 集成
+
+WebAuto 通过 MCP（Model Context Protocol）对外暴露 Profile、代理池、浏览器池的管理能力，可接入 Claude Desktop、Cursor 等 AI 工具。
+
+### 支持的 MCP Server
+
+| Server | 端口 | 工具数 | 能力 |
+|--------|------|--------|------|
+| `webauto-profile` | 8080 | 8 | Profile CRUD + warmup + import/export |
+| `webauto-proxy` | 8081 | 8 | 全局代理池 CRUD + 健康检查 + 批量导入 |
+| `webauto-pool` | 8082 | 8 | Profile 池借还 + 策略切换 + 状态管理 |
+
+**合计 24 个工具**（profile×8 + proxy×8 + pool×8）。
+
+### 快速配置
+
+#### Claude Desktop
+
+编辑 `~/Library/Application Support/Claude/claude_desktop_config.json`：
+
+```json
+{
+  "mcpServers": {
+    "webauto-profile": {
+      "command": "python",
+      "args": ["-m", "webauto.mcp.profile_server"],
+      "env": { "WEBAUTO_BASE_DIR": "~/.cache/webauto" }
+    },
+    "webauto-proxy": {
+      "command": "python",
+      "args": ["-m", "webauto.mcp.proxy_server"],
+      "env": { "WEBAUTO_BASE_DIR": "~/.cache/webauto" }
+    },
+    "webauto-pool": {
+      "command": "python",
+      "args": ["-m", "webauto.mcp.pool_server"],
+      "env": { "WEBAUTO_BASE_DIR": "~/.cache/webauto" }
+    }
+  }
+}
+```
+
+#### Cursor
+
+编辑 `.cursor/mcp.json`（项目根目录）：
+
+```json
+{
+  "mcpServers": {
+    "webauto-profile": {
+      "command": "uvicorn",
+      "args": ["webauto.mcp.profile_server:app", "--host", "127.0.0.1", "--port", "8080"],
+      "env": { "WEBAUTO_BASE_DIR": "~/.cache/webauto" }
+    },
+    "webauto-proxy": {
+      "command": "uvicorn",
+      "args": ["webauto.mcp.proxy_server:app", "--host", "127.0.0.1", "--port", "8081"],
+      "env": { "WEBAUTO_BASE_DIR": "~/.cache/webauto" }
+    },
+    "webauto-pool": {
+      "command": "uvicorn",
+      "args": ["webauto.mcp.pool_server:app", "--host", "127.0.0.1", "--port", "8082"],
+      "env": { "WEBAUTO_BASE_DIR": "~/.cache/webauto" }
+    }
+  }
+}
+```
+
+### 截图配置示意
+
+**Claude Desktop MCP 配置面板**（设置 → Developer → Edit Config）：
+
+```
+┌──────────────────────────────────────────────┐
+│  MCP Servers                                 │
+├──────────────────────────────────────────────┤
+│  ☑ webauto-profile                          │
+│    Command: python -m webauto.mcp.profile…   │
+│                                              │
+│  ☑ webauto-proxy                             │
+│    Command: python -m webauto.mcp.proxy…     │
+│                                              │
+│  ☑ webauto-pool                              │
+│    Command: python -m webauto.mcp.pool…      │
+└──────────────────────────────────────────────┘
+```
+
+### 24 Tools 一览表
+
+#### profile_backend（8 tools）
+
+| Tool | 说明 |
+|------|------|
+| `profile_list` | 列出所有 Profile |
+| `profile_get` | 获取单个 Profile 详情 |
+| `profile_create` | 创建新 Profile |
+| `profile_update` | 更新 Profile 配置 |
+| `profile_delete` | 删除 Profile |
+| `profile_warmup` | 预热 Profile（生成 user-data） |
+| `profile_export` | 导出 Profile 为 .zip |
+| `profile_import` | 从 .zip 导入 Profile |
+
+#### proxy_backend（8 tools）
+
+| Tool | 说明 |
+|------|------|
+| `proxy_list` | 列出所有代理 |
+| `proxy_get` | 获取代理详情 + 健康状态 |
+| `proxy_create` | 添加新代理 |
+| `proxy_update` | 更新代理配置 |
+| `proxy_delete` | 删除代理 |
+| `proxy_health_check` | 发起健康检查 |
+| `proxy_bulk_import` | 批量导入代理 |
+| `proxy_reset_health` | 重置健康状态 |
+
+#### pool（8 tools）
+
+| Tool | 说明 |
+|------|------|
+| `pool_acquire` | 从池中借出 Profile |
+| `pool_release` | 归还 Profile |
+| `pool_status` | 获取池状态快照 |
+| `pool_ban` | 永久封禁 Profile |
+| `pool_cooldown` | 临时冷却 Profile |
+| `pool_set_strategy` | 切换选择策略 |
+| `pool_set_max_concurrent` | 修改最大并发数 |
+| `pool_uncooldown_profile` | 提前解除 cooldown |
+
+### 详细 Schema 文档
+
+完整的 JSON Schema 定义见 `docs/MCP/` 目录：
+
+- `docs/MCP/profile_backend.md` — profile 8 tool schema
+- `docs/MCP/proxy_backend.md` — proxy 8 tool schema
+- `docs/MCP/pool.md` — pool 8 tool schema
+
+---
+
 ## 🎯 智谱 AI GLM Coding 套餐抢购
 
 `Core/Zhipu` 子包吸收了 `References/GlmCodingGrabber` 的完整业务实现,可以抢智谱 BigModel 平台的 GLM Coding 套餐 (Lite / Pro / Max)。
@@ -208,6 +346,33 @@ await ts.countdown(10.0)  # 10 秒倒计时
 - ✅ **加密凭证存储** —— Fernet (AES-128 + HMAC),口令通过环境变量传入
 - ✅ **短信验证码重登** —— 登录态失效时自动发码 → 阻塞等用户输入
 - ✅ **指数退避重试** —— 网络错误重试,售罄/风控不盲目重试
+
+### 🚀 智谱快速开始
+
+**Step 1: 安装依赖**
+```bash
+pip install -r requirements.txt
+```
+
+**Step 2: 准备配置文件**
+```bash
+# 复制示例配置
+cp config.example.yaml config.yaml
+# 编辑 config.yaml，填入你的 Authorization token（从浏览器 F12 抓 bigmodelJwt）
+```
+
+**Step 3: 验证 NTP 同步**
+```bash
+python -m Core.Zhipu sync
+# 输出示例：时钟偏移: -12.3ms  →  OK
+```
+
+**Step 4: 执行抢购**
+```bash
+python -m Core.Zhipu grab -c config.yaml
+```
+
+> **多账号抢购**：在 `config.yaml` 的 `accounts` 列表里加多个账号（每个账号独立 token + 独立 BrowserProfile），即可并发抢购。
 
 **端点(已实测)**:
 ```
