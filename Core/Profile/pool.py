@@ -42,6 +42,7 @@ class ProfilePool:
         strategy: AcquireStrategy = AcquireStrategy.LEAST_USED,
         max_concurrent: int = 10,
         on_acquire_timeout: float = 30.0,
+        flush_interval_seconds: float = 5.0,
     ):
         self.store = store
         self.strategy = strategy
@@ -50,6 +51,11 @@ class ProfilePool:
         self._round_robin_index: int = 0
         self._lock = asyncio.Lock()
         self._on_acquire_timeout = on_acquire_timeout
+        # ── 内存态脏页追踪 ──────────────────────────────────
+        self._dirty: Dict[str, Profile] = {}  # profile_id -> dirty Profile
+        self._flush_interval = flush_interval_seconds
+        self._flush_task: Optional[asyncio.Task] = None
+        self._stop_flush = False
 
     # ─── 核心 acquire/release ──────────────────────────────────
 
@@ -77,6 +83,9 @@ class ProfilePool:
         deadline = time.monotonic() + timeout
 
         async with self._semaphore:
+            # 借出前先把脏页刷下去，保证 list_all 能看到最新状态
+            await self._flush_dirty()
+
             while True:
                 profile = await self._select_profile(tag=tag)
                 if profile is not None:
@@ -92,10 +101,13 @@ class ProfilePool:
 
             profile.status = ProfileStatus.RUNNING
             profile.last_used = time.time()
-            self.store.save(profile)
+            await self._mark_dirty(profile)
 
             async with self._lock:
                 self._in_use[profile.id] = time.time()
+
+            # 启动定期 flush loop（惰性启动）
+            self._ensure_flush_loop()
 
             return profile
 
@@ -115,7 +127,7 @@ class ProfilePool:
 
         # 不覆盖终态：BAN 和 ARCHIVED 保持不变
         if profile.status in (ProfileStatus.BANNED, ProfileStatus.ARCHIVED):
-            self.store.save(profile)
+            await self._mark_dirty(profile)
             async with self._lock:
                 self._in_use.pop(profile.id, None)
             return
@@ -126,7 +138,7 @@ class ProfilePool:
         else:
             profile.status = ProfileStatus.READY
 
-        self.store.save(profile)
+        await self._mark_dirty(profile)
 
         async with self._lock:
             self._in_use.pop(profile.id, None)
@@ -216,3 +228,61 @@ class ProfilePool:
         if profile.is_cooldown_active():
             return False
         return True
+
+    # ─── 脏页追踪 + 定期 flush ─────────────────────────────────
+
+    async def _mark_dirty(self, profile: Profile) -> None:
+        """标记 Profile 为脏页（等待定期 flush）"""
+        async with self._lock:
+            self._dirty[profile.id] = profile
+
+    def _ensure_flush_loop(self) -> None:
+        """确保定期 flush loop 正在运行（惰性启动）"""
+        if self._flush_task is None or self._flush_task.done():
+            self._stop_flush = False
+            self._flush_task = asyncio.create_task(self._flush_loop())
+
+    async def _flush_loop(self) -> None:
+        """后台定期 flush 所有脏页到磁盘"""
+        while not self._stop_flush:
+            await asyncio.sleep(self._flush_interval)
+            if self._stop_flush:
+                break
+            await self._flush_dirty()
+
+    async def _flush_dirty(self) -> None:
+        """把所有脏页刷到磁盘，然后清空 dirty 集合"""
+        async with self._lock:
+            dirty_profiles = list(self._dirty.values())
+            self._dirty.clear()
+
+        if not dirty_profiles:
+            return
+
+        # store.save 是同步的，但非常快（只是写 YAML/JSON），不阻塞事件循环
+        for profile in dirty_profiles:
+            try:
+                self.store.save(profile)
+            except Exception:
+                # 写失败，把 Profile 塞回 dirty，等下次重试
+                async with self._lock:
+                    self._dirty[profile.id] = profile
+                raise
+
+    async def flush(self) -> None:
+        """
+        手动触发一次 flush（同步调用）。
+        建议在任务开始前 /结束后 /进程退出前调用。
+        """
+        await self._flush_dirty()
+
+    async def stop(self) -> None:
+        """停止 flush loop 并刷最后的脏页（池销毁时调用）"""
+        self._stop_flush = True
+        await self._flush_dirty()
+        if self._flush_task is not None and not self._flush_task.done():
+            self._flush_task.cancel()
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass

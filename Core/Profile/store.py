@@ -12,8 +12,10 @@ Core/Profile/store.py — Profile 本地持久化
 from __future__ import annotations
 
 import json
-import yaml
+import os
 import shutil
+import tempfile
+import yaml
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -60,16 +62,18 @@ class ProfileStore:
         pdir = self._profile_dir(profile.id)
         pdir.mkdir(parents=True, exist_ok=True)
 
-        # config.yaml
+        # config.yaml（原子写）
         config_data = profile.to_dict()
-        with open(self._config_path(profile.id), "w", encoding="utf-8") as f:
-            yaml.dump(config_data, f, allow_unicode=True, default_flow_style=False)
+        self._atomic_write(self._config_path(profile.id), config_data, is_json=False)
 
-        # fingerprint.json（单独存储，便于快速读取）
-        with open(self._fingerprint_path(profile.id), "w", encoding="utf-8") as f:
-            json.dump(profile.fingerprint.to_dict(), f, indent=2, ensure_ascii=False)
+        # fingerprint.json（原子写）
+        self._atomic_write(
+            self._fingerprint_path(profile.id),
+            profile.fingerprint.to_dict(),
+            is_json=True,
+        )
 
-        # meta.json
+        # meta.json（原子写）
         meta = {
             "id": profile.id,
             "name": profile.name,
@@ -78,8 +82,7 @@ class ProfileStore:
             "last_used": None,
             "status": profile.status.value,
         }
-        with open(self._meta_path(profile.id), "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2, ensure_ascii=False)
+        self._atomic_write(self._meta_path(profile.id), meta, is_json=True)
 
         return pdir
 
@@ -116,8 +119,14 @@ class ProfileStore:
         """
         更新 Profile 配置（不重启浏览器）。
         仅更新 config.yaml + meta.json，不碰 user-data。
+
+        原子写：先写临时文件，再 os.replace() 替换目标文件。
+        即使进程在写yaml时崩溃，也不会污染原有的 config.yaml。
         """
-        # 更新 meta
+        pdir = self._profile_dir(profile.id)
+        pdir.mkdir(parents=True, exist_ok=True)
+
+        # ── meta.json（原子写）──
         meta_path = self._meta_path(profile.id)
         if meta_path.exists():
             with open(meta_path, "r", encoding="utf-8") as f:
@@ -128,18 +137,43 @@ class ProfileStore:
         meta["last_used"] = profile.last_used
         meta["status"] = profile.status.value
         meta["tags"] = profile.tags
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(meta, f, indent=2, ensure_ascii=False)
 
-        # 更新 config.yaml
+        self._atomic_write(meta_path, meta, is_json=True)
+
+        # ── config.yaml（原子写）──
         config_path = self._config_path(profile.id)
         config_data = profile.to_dict()
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config_data, f, allow_unicode=True, default_flow_style=False)
+        self._atomic_write(config_path, config_data, is_json=False)
 
-        # 更新 fingerprint.json
-        with open(self._fingerprint_path(profile.id), "w", encoding="utf-8") as f:
-            json.dump(profile.fingerprint.to_dict(), f, indent=2, ensure_ascii=False)
+        # ── fingerprint.json（原子写）──
+        fp_path = self._fingerprint_path(profile.id)
+        self._atomic_write(fp_path, profile.fingerprint.to_dict(), is_json=True)
+
+    def _atomic_write(self, target_path: Path, data: Any, *, is_json: bool) -> None:
+        """
+        原子写文件：先写临时文件，再 os.replace() 原子替换。
+        支持 JSON 和 YAML。
+        """
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w",
+            dir=target_path.parent,
+            delete=False,
+            encoding="utf-8",
+        )
+        try:
+            if is_json:
+                json.dump(data, tmp, indent=2, ensure_ascii=False)
+            else:
+                yaml.dump(data, tmp, allow_unicode=True, default_flow_style=False)
+            tmp.close()
+            # POSIX rename 在同一文件系统上是原子的
+            os.replace(tmp.name, str(target_path))
+        finally:
+            # 清理临时文件（万一 replace 失败）
+            try:
+                os.unlink(tmp.name)
+            except OSError:
+                pass
 
     def delete(self, profile_id: str, *, wipe_storage: bool = True) -> None:
         """
