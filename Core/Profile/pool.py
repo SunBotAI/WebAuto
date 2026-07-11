@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+import yaml
 from enum import Enum
+from pathlib import Path
 from typing import Optional, Dict, List
 from contextlib import asynccontextmanager
 
@@ -56,6 +58,9 @@ class ProfilePool:
         self._flush_interval = flush_interval_seconds
         self._flush_task: Optional[asyncio.Task] = None
         self._stop_flush = False
+        # pool.yaml 持久化路径（在 store.base_dir 下）
+        self._config_path = store.base_dir / "pool.yaml"
+        self._load_config()
 
     # ─── 核心 acquire/release ──────────────────────────────────
 
@@ -286,3 +291,70 @@ class ProfilePool:
                 await self._flush_task
             except asyncio.CancelledError:
                 pass
+
+    # ─── 策略/并发数管理（T-090）──────────────────────────────
+
+    def set_strategy(self, strategy: AcquireStrategy) -> None:
+        """切换池策略，下次 acquire 即生效，并持久化到 pool.yaml"""
+        self.strategy = strategy
+        self._save_config()
+
+    def set_max_concurrent(self, max_concurrent: int) -> None:
+        """修改最大并发数，实时生效（通过重建 Semaphore 实现），并持久化到 pool.yaml"""
+        if max_concurrent < 1:
+            raise ValueError(f"max_concurrent must be >= 1, got {max_concurrent}")
+        self._semaphore = asyncio.Semaphore(max_concurrent)
+        self._save_config()
+
+    def get_status(self) -> dict:
+        """返回池状态快照（T-091）"""
+        all_profiles = self.store.list_all()
+        by_status: Dict[str, int] = {s.value: 0 for s in ProfileStatus}
+        for p in all_profiles:
+            by_status[p.status.value] = by_status.get(p.status.value, 0) + 1
+        return {
+            "total": len(all_profiles),
+            "ready": by_status.get("ready", 0),
+            "running": by_status.get("running", 0),
+            "cooldown": by_status.get("cooldown", 0),
+            "banned": by_status.get("banned", 0),
+            "archived": by_status.get("archived", 0),
+            "in_use_ids": list(self._in_use.keys()),
+            "strategy": self.strategy.value,
+            # max_concurrent 无法从 Semaphore 实时读取，用实例变量记录
+            "max_concurrent": self._semaphore._value,  # type: ignore[attr-defined]
+        }
+
+    # ─── pool.yaml 持久化（T-090）─────────────────────────────
+
+    def _save_config(self) -> None:
+        """把当前 strategy + max_concurrent 写 pool.yaml"""
+        try:
+            data = {
+                "strategy": self.strategy.value,
+                "max_concurrent": self._semaphore._value,  # type: ignore[attr-defined]
+            }
+            tmp = self._config_path.with_suffix(".tmp")
+            with open(tmp, "w") as f:
+                yaml.dump(data, f)
+            tmp.replace(self._config_path)
+        except Exception:
+            # 持久化失败不影响主流程
+            pass
+
+    def _load_config(self) -> None:
+        """启动时从 pool.yaml 恢复 strategy + max_concurrent"""
+        if not self._config_path.exists():
+            return
+        try:
+            with open(self._config_path) as f:
+                data = yaml.safe_load(f)
+            if not data:
+                return
+            if "strategy" in data:
+                self.strategy = AcquireStrategy(data["strategy"])
+            if "max_concurrent" in data:
+                self._semaphore = asyncio.Semaphore(int(data["max_concurrent"]))
+        except Exception:
+            # 损坏的 pool.yaml 不阻止启动
+            pass

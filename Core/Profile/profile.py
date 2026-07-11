@@ -239,6 +239,11 @@ class Profile:
         import time
         return time.time() < self.cooldown_until
 
+    def uncooldown(self) -> None:
+        """解除 cooldown 状态，把 cooldown_until 清除并改回 READY"""
+        self.status = ProfileStatus.READY
+        self.cooldown_until = None
+
     def apply_to_antidetect(self, cfg: "AntiDetectConfig") -> None:
         """
         把 fingerprint 同步到 AntiDetectConfig（7 项全量同步）。
