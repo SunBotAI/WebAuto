@@ -234,7 +234,8 @@
 - **目标**：`test_profile_from_dict_edge_cases.py` Profile 边界输入覆盖
 - **验收**：所有边界 case 测试全过
 - **截止**：2026-07-12 22:00
-- **状态**：⏳ PENDING（待 T022/T023 完成后派）
+- **状态**：✅ DONE（2026-07-11，commit c55b60c pushed，35 tests 全过）
+  - 边界 case 全覆盖（空字符串/None/超长值/非法枚举/缺失字段）
 - **派活人**：大白（skill v1.3，含 multi-search-engine）
 - **skill_used（目标）**：multi-search-engine, humanizer
 
@@ -243,7 +244,7 @@
 - **目标**：.gitignore 加 `.pytest_cache/` + `.claude/` + `__pycache__/`
 - **验收**：`git status --ignored` 显示正确忽略
 - **截止**：2026-07-12 22:00
-- **状态**：⏳ PENDING（待 T022/T023 完成后派）
+- **状态**：✅ DONE（2026-07-11，commit c55b60c pushed）
 - **派活人**：大白（skill v1.3）
 - **skill_used（目标）**：无（简单任务）
 
