@@ -382,3 +382,168 @@
   - commit: `b71b497`
 - **截止**：2026-07-11 18:00
 - **skill**：multi-search-engine + session-logs + humanizer
+
+---
+
+## 📋 v1.6 Web + MCP 适配任务（2026-07-11 老大指令）
+
+### XIAOQIAN-WEBAUTO-T074 — requirements.txt 加 mcp + pydantic
+- **任务来源**：TASKLIST.md T-074
+- **目标**：加 `mcp>=1.0,<2.0` + `pydantic>=2.5`
+- **验收**：`pip install -q mcp pydantic` 成功
+- **截止**：2026-07-14 22:00
+- **状态**：✅ DONE（2026-07-11，commit 42287f3 pushed，pip install 成功）
+- **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
+- **skill_used**：multi-search-engine（搜索超时，用知识储备实现）, humanizer
+
+### XIAOQIAN-WEBAUTO-T071 — profile_backend.py 业务后端
+- **任务来源**：TASKLIST.md T-071
+- **目标**：`Tools/profile_backend.py` 包 ProfileStore/Pool/ProxyStore，公开纯函数 list/get/create/update/delete/warmup/import/export
+- **验收**：单测覆盖 8 个公开函数
+- **截止**：2026-07-14 22:00
+- **状态**：✅ DONE（2026-07-11，commit 42287f3 pushed，44 tests passed）
+- **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
+- **skill_used**：multi-search-engine（搜索超时，用知识储备实现）, humanizer
+
+### XIAOQIAN-WEBAUTO-T072 — proxy_backend.py 业务后端
+- **任务来源**：TASKLIST.md T-072
+- **目标**：`Tools/proxy_backend.py` 代理 CRUD + health 报表 + 批量启用/禁用 + 失效剔除
+- **验收**：单测覆盖 CRUD + health 切换
+- **截止**：2026-07-14 22:00
+- **状态**：✅ DONE（2026-07-11，commit 42287f3 pushed，44 tests passed）
+- **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
+- **skill_used**：multi-search-engine（搜索超时，用知识储备实现）, humanizer
+
+### XIAOQIAN-WEBAUTO-T090 — Pool 热切换 set_strategy / set_max_concurrent
+- **任务来源**：TASKLIST.md T-090
+- **目标**：Pool 增 `set_strategy()` / `set_max_concurrent()` + 持久化到 `pool.yaml`
+- **验收**：set 后下一次 acquire 用新策略/并发数
+- **截止**：2026-07-14 22:00
+- **状态**：✅ DONE（2026-07-11，commit 42287f3 pushed）
+- **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
+- **skill_used**：multi-search-engine（搜索超时，用知识储备实现）, humanizer
+
+### XIAOQIAN-WEBAUTO-T091 — Pool 状态查询 + Profile.uncooldown()
+- **任务来源**：TASKLIST.md T-091
+- **目标**：Pool `get_status()` + Profile `uncooldown()` + profile_backend 暴露
+- **验收**：uncooldown 后立即可借
+- **截止**：2026-07-14 22:00
+- **状态**：✅ DONE（2026-07-11，commit 42287f3 pushed）
+- **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
+- **skill_used**：multi-search-engine（搜索超时，用知识储备实现）, humanizer
+
+### XIAOQIAN-WEBAUTO-T073 — service_registry.py 共享单例
+- **任务来源**：TASKLIST.md T-073
+- **目标**：`Tools/service_registry.py` 持有 ProfileStore/Pool/ProxyStore 单例
+- **验收**：单测覆盖注册/拿取
+- **截止**：2026-07-14 22:00
+- **状态**：⏳ PENDING（等 T-071/T-072 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOQIAN-WEBAUTO-T093 — ServiceRegistry 生命周期管理
+- **任务来源**：TASKLIST.md T-093
+- **目标**：`lifecycle()` async context manager，退出时自动 `pool.stop()` + `flush()`
+- **验收**：with lifecycle() 退出后 flush task done、YAML 已落盘
+- **截止**：2026-07-14 22:00
+- **状态**：⏳ PENDING（等 T-073 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOQIAN-WEBAUTO-T081 — mcp_server.py MCP 入口
+- **任务来源**：TASKLIST.md T-081
+- **目标**：`Tools/mcp_server.py` 注册 Profile/Proxy/Pool 三组 tools，21+ tools
+- **验收**：stdio 模式 Claude Desktop 能连，21+ tools 可见
+- **截止**：2026-07-15 22:00
+- **状态**：⏳ PENDING（等 T-073/T-090/T-091 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOQIAN-WEBAUTO-T087 — MCP 双传输模式
+- **任务来源**：TASKLIST.md T-087
+- **目标**：`--transport stdio`（Claude Desktop）+ `--transport http --port 7864`（mcpai）
+- **验收**：stdio + http 都跑通
+- **截止**：2026-07-15 22:00
+- **状态**：⏳ PENDING（等 T-081 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOYUE-WEBAUTO-T075 — profile_panel.py Gradio 面板
+- **任务来源**：TASKLIST.md T-075
+- **目标**：`Tools/profile_panel.py` Gradio 7862，三 Tab
+- **验收**：7862 端口三 Tab 全跑通
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-071/T-073/T-090/T-091 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOYUE-WEBAUTO-T076 — proxy_panel.py Gradio 面板
+- **任务来源**：TASKLIST.md T-076
+- **目标**：`Tools/proxy_panel.py` Gradio 7863，三 Tab
+- **验收**：7863 端口三 Tab 全跑通
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-072/T-073 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOYUE-WEBAUTO-T077 — webauto_web.py 单端口四 Tab 导航
+- **任务来源**：TASKLIST.md T-077
+- **目标**：`Tools/webauto_web.py` 7860 四 Tab 整合
+- **验收**：7860 四个 Tab 都能进
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-075/T-076 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOCE-WEBAUTO-T047 — test_antidetect_profile_sync.py
+- **任务来源**：TASKLIST.md T-047（Phase 4 智谱优先）
+- **目标**：`Tests/test_antidetect_profile_sync.py`：apply_to_antidetect 同步 7 项 + canvas_hash 稳定
+- **验收**：7项字段同步测试全过 + canvas_hash 跨重启 byte-identical
+- **截止**：2026-07-14 22:00
+- **状态**：🟡 IN_PROGRESS（小测接活，feat/webauto）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOCE-WEBAUTO-T053 — test_profile_isolation_e2e.py
+- **任务来源**：TASKLIST.md T-053（Phase 4 智谱优先）
+- **目标**：`Tests/test_profile_isolation_e2e.py`：跨 Profile E2E 隔离验证
+- **验收**：Profile A 的 cookie/localStorage 在 Profile B 中完全不可见
+- **截止**：2026-07-14 22:00
+- **状态**：⏳ PENDING（接 T-047 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOCE-WEBAUTO-T088 — test_mcp_server.py（等 v1.6）
+- **任务来源**：TASKLIST.md T-088
+- **目标**：`Tests/test_mcp_server.py` ≥25 用例
+- **验收**：25+ 用例通过
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ BLOCKED（等 T-081~T-087 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIAOCE-WEBAUTO-T078 — test_web_panels.py
+- **任务来源**：TASKLIST.md T-078
+- **目标**：`Tests/test_web_panels.py` 模拟 Gradio Client 调用
+- **验收**：≥10 用例通过
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-075/T-076 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIADOU-WEBAUTO-T082 — MCP profile 8 tool 清单
+- **任务来源**：TASKLIST.md T-082
+- **目标**：MCP profile 8 tool schema 文档化
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-081 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIADOU-WEBAUTO-T083 — MCP proxy 8 tool 清单
+- **任务来源**：TASKLIST.md T-083
+- **目标**：MCP proxy 8 tool schema 文档化
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-081 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIADOU-WEBAUTO-T084 — MCP pool 8 tool 清单
+- **任务来源**：TASKLIST.md T-084
+- **目标**：MCP pool 8 tool schema 文档化（含 set_strategy/set_max_concurrent/uncooldown）
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-081/T-090/T-091 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
+
+### XIADOU-WEBAUTO-T089 — README MCP 集成章节
+- **任务来源**：TASKLIST.md T-089
+- **目标**：README 新增 MCP 集成章节（mcp.json 示例 + 24 tools 一览表）
+- **截止**：2026-07-16 22:00
+- **状态**：⏳ PENDING（等 T-081~T-087 完成后）
+- **skill_used（目标）**：multi-search-engine, humanizer
