@@ -332,6 +332,113 @@ WebAuto 通过 MCP（Model Context Protocol）对外暴露 Profile、代理池�
 - `docs/MCP/proxy_backend.md` — proxy 8 tool schema
 - `docs/MCP/pool.md` — pool 8 tool schema
 
+### 安装依赖
+
+MCP Server 需要以下依赖（已包含在项目 `requirements.txt` 中）：
+
+```bash
+pip install -r requirements.txt
+```
+
+关键依赖：
+- `mcp` — MCP Python SDK
+- `fastapi` + `uvicorn` — HTTP Server（Cursor stdio 模式）
+- `playwright` — 浏览器自动化
+- `pyyaml` / `json` — 配置文件读写
+
+### stdio 启动命令
+
+适合 Claude Desktop 或直接命令行测试：
+
+```bash
+# 方式 1：直接 python 模块（推荐 Claude Desktop）
+python -m webauto.mcp.profile_server
+python -m webauto.mcp.proxy_server
+python -m webauto.mcp.pool_server
+
+# 方式 2：HTTP + uvicorn（适合 Cursor stdio 模式）
+uvicorn webauto.mcp.profile_server:app --host 127.0.0.1 --port 8080
+uvicorn webauto.mcp.proxy_server:app --host 127.0.0.1 --port 8081
+uvicorn webauto.mcp.pool_server:app --host 127.0.0.1 --port 8082
+
+# 方式 3：验证安装是否成功
+python -c "import webauto.mcp.profile_server; print('OK')"
+python -c "import webauto.mcp.proxy_server; print('OK')"
+python -c "import webauto.mcp.pool_server; print('OK')"
+```
+
+### 故障排查 FAQ
+
+**Q: MCP Server 启动报错 `ModuleNotFoundError: No module named 'webauto'`**
+
+```bash
+# 确保在项目根目录，且 PYTHONPATH 包含 src
+cd /path/to/WebAuto
+export PYTHONPATH="$(pwd):$PYTHONPATH"
+```
+
+或安装为可编辑包：
+```bash
+pip install -e .
+```
+
+**Q: Claude Desktop 检测不到 MCP Server**
+
+1. 确认 `claude_desktop_config.json` 路径正确：
+   - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+   - Linux: `~/.config/Claude/claude_desktop_config.json`
+   - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+
+2. 重启 Claude Desktop
+
+3. 检查日志：Claude Desktop → Settings → Developer → 查看 MCP 配置状态
+
+**Q: 端口被占用（8080/8081/8082）**
+
+```bash
+# 查占用进程
+lsof -i :8080
+lsof -i :8081
+lsof -i :8082
+
+# 换用其他空闲端口，记得同步更新 mcp.json 配置
+uvicorn webauto.mcp.profile_server:app --host 127.0.0.1 --port 9000
+```
+
+**Q: Profile/Proxy 操作报 `FileNotFoundError: Profile not found`**
+
+Profile/Proxy 数据默认存在 `~/.cache/webauto/profiles/` 和 `~/.cache/webauto/proxies/`。确认：
+1. WebAuto 初始化时指定的 `WEBAUTO_BASE_DIR` 与 MCP Server 一致
+2. 目录有读写权限
+
+**Q: MCP 工具调用超时**
+
+健康检查（`proxy_health_check`）默认超时 10 秒，代理响应慢时可调大：
+```json
+{
+  "proxy_id": "proxy-001",
+  "test_url": "https://www.google.com",
+  "timeout": 30
+}
+```
+
+**Q: Windows 上路径格式问题**
+
+Windows 路径用反斜杠，MCP 配置中建议用正斜杠或 raw string：
+```json
+{
+  "env": {
+    "WEBAUTO_BASE_DIR": "C:\\Users\\username\\.cache\\webauto"
+  }
+}
+```
+
+**Q: Cursor MCP 配置不生效**
+
+1. `.cursor/mcp.json` 必须放在项目根目录
+2. Cursor 重启后生效（不是 reload）
+3. 终端输出查报错：`cursor --verbose` 启动看 MCP 加载日志
+
 ---
 
 ## 🎯 智谱 AI GLM Coding 套餐抢购
