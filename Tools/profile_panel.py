@@ -583,7 +583,6 @@ def main():
     demo = _build_ui()
     print(f"🚀 启动 Profile 面板 → http://{args.host}:{args.port}")
     demo.launch(
-        host=args.host,
         server_port=args.port,
         share=args.share,
     )
