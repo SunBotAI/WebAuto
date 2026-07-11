@@ -556,3 +556,145 @@ context = await browser.new_context(
     )
 
     t3_refresh.click(fn=_refresh_preview, outputs=[t3_table])
+
+    # ── Tab4: 池策略配置 ────────────────────────────────────────────
+
+    gr.Markdown("---")
+    gr.Markdown("### ⚙️ 池策略配置")
+
+    from Tools.proxy_backend import (
+        set_health_check_interval,
+        get_pool_visual_status,
+        geoip_route,
+    )
+    from Core.Profile.pool import _get_pool_instance
+    from Core.Profile import AcquireStrategy
+
+    strategy_choices = [s.value for s in AcquireStrategy]
+
+    with gr.Row():
+        with gr.Column():
+            t4_strategy = gr.Dropdown(
+                label="获取策略",
+                choices=strategy_choices,
+                value=strategy_choices[0],
+            )
+            t4_max_concurrent = gr.Number(
+                label="最大并发数",
+                value=10,
+                minimum=1,
+                maximum=100,
+                step=1,
+            )
+            t4_health_interval = gr.Number(
+                label="健康检测间隔（分钟，0=关闭）",
+                value=0,
+                minimum=0,
+                maximum=1440,
+                step=1,
+            )
+            t4_apply_btn = gr.Button("💾 应用策略", variant="primary")
+            t4_result = gr.Textbox(label="结果", interactive=False, lines=3)
+
+        with gr.Column():
+            t4_geoip_url = gr.Textbox(
+                label="GeoIP 路由测试（输入 URL）",
+                placeholder="https://www.amazon.co.jp/...",
+            )
+            t4_geoip_profile = gr.Dropdown(
+                label="Profile",
+                choices=["default"],
+                value="default",
+            )
+            t4_geoip_result = gr.JSON(label="路由结果", value={})
+            t4_geoip_btn = gr.Button("🔍 测试 GeoIP 路由", variant="secondary")
+
+    gr.Markdown("### 📊 池状态总览")
+
+    t4_pool_status = gr.JSON(label="池状态", value={})
+    t4_pool_refresh = gr.Button("🔄 刷新池状态", variant="secondary")
+
+    # ── Tab5: 池可视化 ──────────────────────────────────────────────
+
+    gr.Markdown("---")
+    gr.Markdown("### 📈 代理池可视化")
+
+    t5_refresh = gr.Button("🔄 刷新可视化", variant="secondary")
+
+    t5_by_state = gr.JSON(label="按状态分布", value={})
+    t5_by_region = gr.JSON(label="按地区分布", value={})
+    t5_profiles_detail = gr.Dataframe(
+        label="各 Profile 代理详情",
+        headers=["Profile ID", "总数", "Active", "Cooldown", "Banned", "地区列表"],
+        datatype=["str", "number", "number", "number", "number", "str"],
+        value=[],
+        interactive=False,
+    )
+
+    # ── Tab4/Tab5 事件绑定 ────────────────────────────────────────────
+
+    def _apply_strategy(strategy, max_concurrent, health_interval):
+        try:
+            pool = _get_pool_instance()
+            if pool is not None:
+                pool.set_strategy(AcquireStrategy(strategy))
+                pool.set_max_concurrent(int(max_concurrent))
+                pool.set_health_check_interval(int(health_interval))
+                return f"✅ 策略已更新\n策略: {strategy}\n并发: {max_concurrent}\n健康检测: {health_interval}min"
+            return "⚠️ Pool 未初始化（先启动 ProfilePool）"
+        except Exception as e:
+            return f"❌ 错误: {e}"
+
+    def _refresh_pool_status():
+        try:
+            vs = get_pool_visual_status()
+            pool = _get_pool_instance()
+            if pool is not None:
+                vs["strategy"] = pool.strategy.value
+                vs["max_concurrent"] = pool._semaphore._value
+                vs["health_check_interval_minutes"] = pool._health_check_interval
+            return vs
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _do_geoip_route(url, profile_id):
+        try:
+            result = geoip_route(url, profile_id)
+            if result is None:
+                return {"matched": False, "message": "无可用代理（无匹配 region 或池为空）"}
+            return result
+        except Exception as e:
+            return {"error": str(e)}
+
+    def _refresh_visualization():
+        try:
+            vs = get_pool_visual_status()
+            return vs.get("by_state", {}), vs.get("by_region", {}), _profiles_detail_rows(vs)
+        except Exception as e:
+            return {"error": str(e)}, {}, []
+
+    def _profiles_detail_rows(vs):
+        rows = []
+        for p in vs.get("profiles", []):
+            rows.append([
+                p["profile_id"],
+                p["total"],
+                p["active"],
+                p["cooldown"],
+                p["banned"],
+                ", ".join(p.get("regions", [])) or "-",
+            ])
+        return rows
+
+    t4_apply_btn.click(
+        fn=_apply_strategy,
+        inputs=[t4_strategy, t4_max_concurrent, t4_health_interval],
+        outputs=[t4_result],
+    )
+    t4_pool_refresh.click(fn=_refresh_pool_status, outputs=[t4_pool_status])
+    t4_geoip_btn.click(fn=_do_geoip_route, inputs=[t4_geoip_url, t4_geoip_profile], outputs=[t4_geoip_result])
+    t5_refresh.click(
+        fn=_refresh_visualization,
+        inputs=[],
+        outputs=[t5_by_state, t5_by_region, t5_profiles_detail],
+    )

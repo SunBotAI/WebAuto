@@ -56,6 +56,7 @@ class ProxyEntry:
     state: ProxyState = ProxyState.ACTIVE
     consecutive_failures: int = 0
     cooldown_until: Optional[float] = None   # unix timestamp
+    region: Optional[str] = None             # ISO 国家代码（CN/US/JP...）
 
     def is_available(self) -> bool:
         if self.state == ProxyState.BANNED:

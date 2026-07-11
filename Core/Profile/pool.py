@@ -60,7 +60,11 @@ class ProfilePool:
         self._stop_flush = False
         # pool.yaml 持久化路径（在 store.base_dir 下）
         self._config_path = store.base_dir / "pool.yaml"
+        # 健康检测间隔（分钟），0 表示关闭自动检测
+        self._health_check_interval: int = 0
         self._load_config()
+        # 注册模块级单例
+        _set_pool_instance(self)
 
     # ─── 核心 acquire/release ──────────────────────────────────
 
@@ -323,16 +327,18 @@ class ProfilePool:
             "strategy": self.strategy.value,
             # max_concurrent 无法从 Semaphore 实时读取，用实例变量记录
             "max_concurrent": self._semaphore._value,  # type: ignore[attr-defined]
+            "health_check_interval": self._health_check_interval,
         }
 
     # ─── pool.yaml 持久化（T-090）─────────────────────────────
 
     def _save_config(self) -> None:
-        """把当前 strategy + max_concurrent 写 pool.yaml"""
+        """把当前 strategy + max_concurrent + health_check_interval 写 pool.yaml"""
         try:
             data = {
                 "strategy": self.strategy.value,
                 "max_concurrent": self._semaphore._value,  # type: ignore[attr-defined]
+                "health_check_interval": self._health_check_interval,
             }
             tmp = self._config_path.with_suffix(".tmp")
             with open(tmp, "w") as f:
@@ -355,6 +361,29 @@ class ProfilePool:
                 self.strategy = AcquireStrategy(data["strategy"])
             if "max_concurrent" in data:
                 self._semaphore = asyncio.Semaphore(int(data["max_concurrent"]))
+            if "health_check_interval" in data:
+                self._health_check_interval = int(data["health_check_interval"])
         except Exception:
             # 损坏的 pool.yaml 不阻止启动
             pass
+
+    def set_health_check_interval(self, minutes: int) -> None:
+        """设置健康检测间隔（分钟），持久化到 pool.yaml。"""
+        self._health_check_interval = max(0, minutes)
+        self._save_config()
+
+
+# ─── 模块级单例（供 proxy_backend 调用）───────────────────────────
+
+_profile_pool_instance: Optional[ProfilePool] = None
+
+
+def _get_pool_instance() -> Optional[ProfilePool]:
+    """返回已创建的 ProfilePool 单例（未创建返回 None）。"""
+    return _profile_pool_instance
+
+
+def _set_pool_instance(pool: ProfilePool) -> None:
+    """设置模块级单例（在 ProfilePool 创建处调用）。"""
+    global _profile_pool_instance
+    _profile_pool_instance = pool
