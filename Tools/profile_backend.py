@@ -128,6 +128,98 @@ def update_profile(profile_id: str, data: Dict[str, Any]) -> Optional[Profile]:
     return updated
 
 
+def bulk_update_tags(
+    ids: List[str],
+    add_tags: Optional[List[str]] = None,
+    remove_tags: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    批量增删 Profile tags。
+
+    原子写：全部成功或全部失败（中途失败已修改的不回滚，但返回失败列表。
+    由于 ProfileStore.save 是按文件覆盖，失败不影响其他已成功的 Profile。）
+
+    Args:
+        ids: 要更新的 Profile id 列表
+        add_tags: 要追加的 tag 列表（None 表示不增）
+        remove_tags: 要删除的 tag 列表（None 表示不删）
+
+    Returns:
+        {"succeeded": [id, ...], "failed": [(id, error_msg), ...]}
+    """
+    if not ids:
+        return {"succeeded": [], "failed": []}
+    add_tags = add_tags or []
+    remove_tags = remove_tags or []
+
+    store = _get_store()
+    succeeded: List[str] = []
+    failed: List[tuple] = []
+
+    for profile_id in ids:
+        existing = get_profile(profile_id)
+        if existing is None:
+            failed.append((profile_id, "Profile not found"))
+            continue
+        current_tags = set(existing.tags)
+        # 增 tag（去重）
+        for t in add_tags:
+            current_tags.add(t)
+        # 删 tag
+        for t in remove_tags:
+            current_tags.discard(t)
+        merged = existing.to_dict()
+        merged["tags"] = sorted(current_tags)
+        try:
+            updated = Profile.from_dict(merged)
+            updated.id = profile_id
+            store.save(updated)
+            succeeded.append(profile_id)
+        except Exception as e:
+            failed.append((profile_id, str(e)))
+
+    return {"succeeded": succeeded, "failed": failed}
+
+
+def bulk_set_status(
+    ids: List[str],
+    status: ProfileStatus,
+) -> Dict[str, Any]:
+    """
+    批量设置 Profile 状态。
+
+    Args:
+        ids: 要更新的 Profile id 列表
+        status: ProfileStatus 枚举值（READY / COOLDOWN / BANNED / CREATING / DELETING）
+
+    Returns:
+        {"succeeded": [id, ...], "failed": [(id, error_msg), ...]}
+    """
+    if not ids:
+        return {"succeeded": [], "failed": []}
+
+    store = _get_store()
+    succeeded: List[str] = []
+    failed: List[tuple] = []
+
+    for profile_id in ids:
+        existing = get_profile(profile_id)
+        if existing is None:
+            failed.append((profile_id, "Profile not found"))
+            continue
+        merged = existing.to_dict()
+        merged["status"] = status.value if hasattr(status, "value") else str(status)
+        try:
+            updated = Profile.from_dict(merged)
+            updated.id = profile_id
+            store.save(updated)
+            succeeded.append(profile_id)
+        except Exception as e:
+            failed.append((profile_id, str(e)))
+
+    return {"succeeded": succeeded, "failed": failed}
+
+
 def delete_profile(profile_id: str) -> bool:
     """
     删除 Profile（物理删除目录）。
