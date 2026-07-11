@@ -160,6 +160,11 @@ def build_profile_tab() -> None:
                 placeholder="e.g. US, residential",
                 value="default",
             )
+            c_template = gr.Dropdown(
+                label="📋 模板预设（选择后自动填充全部字段）",
+                choices=["（自定义）", "模板A：反检测标准", "模板B：反检测高性能"],
+                value="（自定义）",
+            )
             c_ua_type = gr.Dropdown(
                 label="UA 类型",
                 choices=list(UA_TEMPLATES.keys()),
@@ -171,6 +176,8 @@ def build_profile_tab() -> None:
             )
             c_locale = gr.Textbox(label="Locale", value="en-US")
             c_timezone = gr.Textbox(label="Timezone", value="America/New_York")
+            c_hardware = gr.Number(label="CPU Cores", value=8, minimum=1, maximum=64)
+            c_device_mem = gr.Number(label="Device Memory (GB)", value=8, minimum=0.5, maximum=128)
             c_country = gr.Textbox(
                 label="GeoIP Country（ISO）",
                 placeholder="US",
@@ -315,8 +322,9 @@ def build_profile_tab() -> None:
             return f"❌ Profile {pid} 不存在"
 
     def _do_create(
-        name: str, tags_str: str, ua_type: str,
+        name: str, tags_str: str, template: str, ua_type: str,
         proxy: str, locale: str, timezone: str, country: str,
+        hardware_concurrency: float, device_memory: float,
     ) -> tuple[str, list]:
         if not name.strip():
             return "⚠️ 名称不能为空", _profiles_to_rows(store.list_all())
@@ -330,6 +338,18 @@ def build_profile_tab() -> None:
         fp.platform = PLATFORM_MAP.get(ua_type, "Linux x86_64")
         fp.locale = locale
         fp.timezone = timezone
+        fp.hardware_concurrency = int(hardware_concurrency)
+        fp.device_memory = int(device_memory)
+        # 模板预设覆盖（反检测标准 / 高性能）
+        if template != "（自定义）":
+            vals = TEMPLATE_VALUES.get(template, {})
+            fp.locale = vals.get("locale", locale)
+            fp.timezone = vals.get("timezone", timezone)
+            fp.platform = vals.get("platform", fp.platform)
+            fp.webgl_vendor = vals.get("vendor", fp.webgl_vendor)
+            fp.screen_resolution = vals.get("screen_resolution", fp.screen_resolution)
+            fp.hardware_concurrency = vals.get("hardware_concurrency", fp.hardware_concurrency)
+            fp.device_memory = vals.get("device_memory", fp.device_memory)
         net = NetworkConfig()
         if proxy.strip():
             net.proxy_url = proxy.strip()
@@ -685,10 +705,49 @@ def build_profile_tab() -> None:
         outputs=[t1_detail_md],
     )
 
+    # 模板切换自动填充指纹字段
+    TEMPLATE_VALUES = {
+        "模板A：反检测标准": {
+            "locale": "zh-CN",
+            "timezone": "Asia/Shanghai",
+            "platform": "Win64",
+            "vendor": "Google Inc.",
+            "screen_resolution": (1920, 1080),
+            "hardware_concurrency": 8,
+            "device_memory": 8,
+        },
+        "模板B：反检测高性能": {
+            "locale": "zh-CN",
+            "timezone": "Asia/Shanghai",
+            "platform": "Win64",
+            "vendor": "Google Inc.",
+            "screen_resolution": (2560, 1440),
+            "hardware_concurrency": 16,
+            "device_memory": 16,
+        },
+    }
+
+    def _on_template_change(tpl: str) -> tuple:
+        if tpl == "（自定义）":
+            return gr.update(), gr.update(), gr.update(), gr.update()
+        vals = TEMPLATE_VALUES.get(tpl, {})
+        return (
+            gr.update(value=vals.get("locale", "")),
+            gr.update(value=vals.get("timezone", "")),
+            gr.update(value=vals.get("hardware_concurrency", 8)),
+            gr.update(value=vals.get("device_memory", 8)),
+        )
+
+    c_template.change(
+        fn=_on_template_change,
+        inputs=[c_template],
+        outputs=[c_locale, c_timezone, c_hardware, c_device_mem],
+    )
+
     c_btn.click(
         fn=_do_create,
-        inputs=[c_name, c_tags, c_ua_type, c_proxy,
-                c_locale, c_timezone, c_country],
+        inputs=[c_name, c_tags, c_template, c_ua_type, c_proxy,
+                c_locale, c_timezone, c_country, c_hardware, c_device_mem],
         outputs=[c_result, t1_table],
     )
 
