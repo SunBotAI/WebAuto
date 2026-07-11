@@ -486,6 +486,196 @@ def build_profile_tab() -> None:
         except Exception as e:
             return f"❌ 导入失败: {e}"
 
+    # ── 自动采集工作流 ─────────────────────────────────────────
+
+    gr.Markdown("---")
+    gr.Markdown("### 🔬 Profile 自动采集（Playwright 实时采集）")
+    gr.Markdown(
+        """**流程：** 输入 URL → 浏览器弹出（你手动过验证码）→ 系统自动采集全量指纹入池
+
+> ⚠️ 采集完成后**立即手动保存 Cookie**，存到「智谱凭证」Tab。
+> """)
+
+    with gr.Row():
+        with gr.Column():
+            c_url = gr.Textbox(
+                label="目标 URL",
+                placeholder="https://www.example.com（任意页面均可）",
+            )
+            c_profile_name = gr.Textbox(
+                label="Profile 名称",
+                placeholder="e.g. 主账号-采集-20260101",
+            )
+            c_tags = gr.Textbox(
+                label="标签（逗号分隔）",
+                placeholder="auto-collected",
+            )
+            c_proxy_override = gr.Textbox(
+                label="代理 URL（可选，用当前 Profile 的代理）",
+                placeholder="http://user:***@host:port，留空用 Profile 默认代理",
+            )
+            c_captcha_timeout = gr.Number(
+                label="手动验证码超时（秒）",
+                value=120.0,
+                minimum=30,
+                maximum=600,
+            )
+            c_start_btn = gr.Button(
+                "🚀 开始采集（弹出浏览器窗口）",
+                variant="primary",
+            )
+
+        with gr.Column():
+            c_status_md = gr.Markdown("**状态：** 等待开始")
+            c_preview_md = gr.Markdown(
+                """**采集数据预览：**（完成后显示）
+- UA
+- Canvas Seed
+- WebGL Vendor / Renderer
+- Locale / Timezone
+- Screen Resolution
+- 采集的 Cookie 数量
+- LocalStorage 条目数量"""
+            )
+            c_save_btn = gr.Button(
+                "💾 保存到 Profile 池",
+                variant="primary",
+            )
+            c_result_md = gr.Markdown("**结果：** 等待采集")
+
+    # Hidden state: last collected result
+    _collected_result = gr.State(value=None)
+
+    async def _do_collect_async(
+        url: str,
+        profile_name: str,
+        tags_str: str,
+        proxy_override: str,
+        captcha_timeout: float,
+    ) -> tuple[str, str, str, object]:
+        from Core.Profile.fingerprint_collector import (
+            FingerprintCollector,
+            CollectorConfig,
+        )
+        from Core.Profile.profile import NetworkConfig
+
+        if not url.strip():
+            return (
+                "⚠️ URL 不能为空",
+                "**状态：** URL 为空，请重试",
+                "",
+                None,
+            )
+
+        cfg = CollectorConfig(
+            headless=False,
+            timeout_ms=int(captcha_timeout * 1000),
+            wait_for_manual_captcha_s=captcha_timeout,
+        )
+        collector = FingerprintCollector(config=cfg)
+
+        try:
+            status_text = "**状态：** 启动浏览器..."
+            preview_text = ""
+
+            await collector.open_browser()
+            page = await collector.navigate(url.strip())
+
+            status_text = (
+                f"**状态：** ✅ 浏览器已打开\n\n"
+                f"请在弹出的浏览器窗口中**手动登录并过验证码**，\n"
+                f"完成后返回本面板点击「保存到 Profile 池」\n\n"
+                f"（等待最多 {int(captcha_timeout)} 秒后自动完成采集）"
+            )
+            preview_text = "**采集数据预览：**（采集中...）"
+
+            result = await collector.collect(page=page)
+            fp = result.fingerprint
+
+            preview_text = "\n".join([
+                f"**UA:**\n```\n{fp.user_agent[:80]}...\n```",
+                f"**Canvas Seed:** {fp.canvas_seed}",
+                f"**WebGL Vendor:** {fp.webgl_vendor}",
+                f"**WebGL Renderer:** {fp.webgl_renderer}",
+                f"**Locale:** {fp.locale} | **Timezone:** {fp.timezone}",
+                f"**Screen:** {fp.screen_resolution} | **Platform:** {fp.platform}",
+                f"**CPU Cores:** {fp.hardware_concurrency} | **Memory:** {fp.device_memory} GB",
+                f"**Cookie:** {len(result.cookies)} 个 | "
+                f"**LocalStorage:** {len(result.local_storage)} 条 | "
+                f"**SessionStorage:** {len(result.session_storage)} 条",
+            ])
+            status_text = f"**状态：** ✅ 指纹采集完成！点击「保存到 Profile 池」"
+            return "", status_text, preview_text, result
+
+        except Exception as e:
+            import traceback
+            status_text = f"**状态：** ❌ 采集失败\n\n```\n{e}\n{traceback.format_exc()[-500:]}\n```"
+            return "", status_text, "", None
+        finally:
+            await collector.close()
+
+    def _on_collect(
+        url: str,
+        profile_name: str,
+        tags_str: str,
+        proxy_override: str,
+        captcha_timeout: float,
+    ) -> tuple[str, str, str, object]:
+        return _run(_do_collect_async(
+            url, profile_name, tags_str,
+            proxy_override, captcha_timeout,
+        ))
+
+    def _on_save_collected(
+        result_obj: object,
+        profile_name: str,
+        tags_str: str,
+    ) -> tuple[str, list]:
+        if result_obj is None:
+            return "⚠️ 还没有采集结果，请先点「开始采集」", _profiles_to_rows(store.list_all())
+        if not profile_name.strip():
+            return "⚠️ Profile 名称不能为空", _profiles_to_rows(store.list_all())
+
+        result: "FingerprintResult" = result_obj
+        fp = result.fingerprint
+
+        from Core.Profile.profile import NetworkConfig
+        tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+
+        profile = Profile(
+            name=profile_name.strip(),
+            tags=tags,
+            fingerprint=fp,
+            network=NetworkConfig(),
+        )
+        profile.user_agent = result.user_agent
+        # 尝试从 cookies 中解析代理
+        for c in result.cookies:
+            pass  # Cookie 中的代理信息解析（可选扩展）
+
+        try:
+            store.create(profile)
+            return (
+                f"✅ Profile 已保存: {profile.id}\n"
+                f"UA: {fp.user_agent[:50]}...\n"
+                f"Canvas Seed: {fp.canvas_seed}\n"
+                f"WebGL: {fp.webgl_vendor} / {fp.webgl_renderer}",
+                _profiles_to_rows(store.list_all()),
+            )
+        except Exception as e:
+            return f"❌ 保存失败: {e}", _profiles_to_rows(store.list_all())
+
+    c_start_btn.click(
+        fn=_on_collect,
+        inputs=[c_url, c_profile_name, c_tags, c_proxy_override, c_captcha_timeout],
+        outputs=[c_status_md, c_preview_md, _collected_result],
+    )
+    c_save_btn.click(
+        fn=_on_save_collected,
+        inputs=[_collected_result, c_profile_name, c_tags],
+        outputs=[c_result_md, t1_table],
+    )
+
     # bind events
     t1_refresh.click(fn=_refresh_list, outputs=t1_table)
 
