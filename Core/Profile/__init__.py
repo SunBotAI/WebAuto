@@ -5,11 +5,13 @@ Profile = 指纹 + 网络 + 标签 + 状态
 所有上层业务（Spider / 抢购 / MCP）通过 Profile 层与底层浏览器交互。
 
 子模块：
-- profile.py      : Profile 数据类 + FingerprintConfig + NetworkConfig
-- fingerprint_gen : 指纹生成器（Canvas/WebGL/Audio seed）
-- store.py        : 本地持久化（CRUD + import/export）
-- orchestrator.py : 浏览器编排器（生命周期管理）
-- pool.py         : Profile 池（借/还/轮换策略）
+- profile.py        : Profile 数据类 + FingerprintConfig + NetworkConfig
+- fingerprint_gen   : 指纹生成器（Canvas/WebGL/Audio seed）
+- store.py          : 本地持久化（CRUD + import/export）
+- orchestrator.py   : 浏览器编排器（生命周期管理）
+- pool.py           : Profile 池（借/还/轮换策略）
+- geoip.py          : IP 地理推断（country/city/timezone/locale）
+- proxy_rotator.py  : 代理失败轮换 + cooldown/banned 策略
 """
 
 import warnings
@@ -28,6 +30,8 @@ from .fingerprint_gen import FingerprintGenerator
 from .store import ProfileStore
 from .orchestrator import BrowserOrchestrator
 from .pool import ProfilePool, AcquireStrategy
+from .geoip import GeoInfo, ip2geoinfo, ip2timezone, suggest_fingerprint_from_ip
+from .proxy_rotator import ProxyRotator, ProxyPolicy, ProxyState
 
 __all__ = [
     "Profile",
@@ -39,4 +43,13 @@ __all__ = [
     "BrowserOrchestrator",
     "ProfilePool",
     "AcquireStrategy",
+    # geoip
+    "GeoInfo",
+    "ip2geoinfo",
+    "ip2timezone",
+    "suggest_fingerprint_from_ip",
+    # proxy_rotator
+    "ProxyRotator",
+    "ProxyPolicy",
+    "ProxyState",
 ]

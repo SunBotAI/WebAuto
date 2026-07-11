@@ -34,9 +34,12 @@ class NetworkConfig:
     proxy_type: str = "http"                     # http | socks5
     geoip_country: Optional[str] = None          # "US" | "CN" | ...
     dns_over_https: bool = True
+    # T-022: 多代理池（失败轮换）
+    proxy_pool: List[str] = field(default_factory=list)   # ["http://p1", "http://p2", ...]
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "NetworkConfig":
