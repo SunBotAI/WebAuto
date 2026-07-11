@@ -165,3 +165,90 @@ class TestAntidetectScriptLocaleConsistency:
 
         assert "Apple Inc." in script, f"webgl_vendor not in script"
         assert "Apple M2" in script, f"webgl_renderer not in script"
+
+
+class TestCanvasHashStability:
+    """T-047 验收补充：canvas_hash 跨重启 byte-identical
+
+    验证 fingerprint_seed → canvas_hash 确定性：
+    同样 canvas_seed 两次生成，hash 完全相同（byte-identical）。
+
+    当前实现状态：Core/AntiDetect.py 未暴露 canvas_hash 公开 API。
+    本测试在 AntiDetect 暴露 canvas_hash 后启用（移除 skip）。
+    """
+
+    @pytest.mark.skip(
+        reason="AntiDetect.py 未暴露 canvas_hash 公开 API；"
+               "等小千在 Core/AntiDetect.py 添加 canvas_hash() 后启用本测试。"
+               "追踪：XIAOCE-WAUTO-T047 canvas_hash 等待实现"
+    )
+    def test_canvas_hash_deterministic_same_seed(self):
+        """相同 canvas_seed → 相同 canvas_hash（byte-identical）"""
+        from Core.AntiDetect import AntiDetectConfig, AntiDetectInjector
+        cfg_a = AntiDetectConfig()
+        cfg_a.fingerprint_seed = 42
+        cfg_a.canvas_seed = 42
+        injector_a = AntiDetectInjector(cfg_a)
+        hash_a = injector_a.canvas_hash()
+
+        cfg_b = AntiDetectConfig()
+        cfg_b.fingerprint_seed = 42
+        cfg_b.canvas_seed = 42
+        injector_b = AntiDetectInjector(cfg_b)
+        hash_b = injector_b.canvas_hash()
+
+        assert hash_a == hash_b, f"canvas_hash 不稳定: {hash_a!r} vs {hash_b!r}"
+        assert isinstance(hash_a, bytes), f"canvas_hash 应为 bytes, 实际 {type(hash_a)}"
+        assert len(hash_a) >= 16, f"canvas_hash 太短: {len(hash_a)} 字节"
+
+    @pytest.mark.skip(
+        reason="AntiDetect.py 未暴露 canvas_hash 公开 API；"
+               "等小千实现 canvas_hash() 后启用。"
+    )
+    def test_canvas_hash_differs_across_profiles(self):
+        """不同 Profile（不同 canvas_seed）→ 不同 canvas_hash"""
+        from Core.AntiDetect import AntiDetectConfig, AntiDetectInjector
+        cfg_a = AntiDetectConfig()
+        cfg_a.canvas_seed = 100
+        injector_a = AntiDetectInjector(cfg_a)
+        hash_a = injector_a.canvas_hash()
+
+        cfg_b = AntiDetectConfig()
+        cfg_b.canvas_seed = 200
+        injector_b = AntiDetectInjector(cfg_b)
+        hash_b = injector_b.canvas_hash()
+
+        assert hash_a != hash_b, "不同 canvas_seed 应当产生不同 hash"
+
+    @pytest.mark.skip(
+        reason="AntiDetect.py 未暴露 canvas_hash 公开 API；"
+               "等小千实现 canvas_hash() 后启用。"
+    )
+    def test_canvas_hash_byte_identical_across_restarts(self):
+        """跨进程重启：相同 seed → byte-identical hash
+
+        模拟两个独立 AntiDetectInjector 实例（同 seed）：
+        - 实例 1 启动 → 生成 hash_a
+        - 实例 1 销毁
+        - 实例 2 启动（同 seed）→ 生成 hash_b
+        - 验证 hash_a == hash_b（无随机性，无时间戳依赖）
+        """
+        from Core.AntiDetect import AntiDetectConfig, AntiDetectInjector
+
+        seed = 7777
+        hash_a = None
+        # 第一轮
+        cfg = AntiDetectConfig()
+        cfg.canvas_seed = seed
+        cfg.fingerprint_seed = seed
+        injector = AntiDetectInjector(cfg)
+        hash_a = injector.canvas_hash()
+
+        # 第二轮（新实例，模拟重启）
+        cfg2 = AntiDetectConfig()
+        cfg2.canvas_seed = seed
+        cfg2.fingerprint_seed = seed
+        injector2 = AntiDetectInjector(cfg2)
+        hash_b = injector2.canvas_hash()
+
+        assert hash_a == hash_b, "canvas_hash 跨重启不一致（违反确定性）"
