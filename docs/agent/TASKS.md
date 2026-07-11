@@ -225,7 +225,7 @@
 - **目标**：`Store.save` 原子写（os.rename） + Pool 内存态 + 定期 flush
 - **验收**：100 借还/秒 YAML 不损坏 + IO 不阻塞
 - **截止**：2026-07-12 22:00
-- **状态**：⏳ PENDING（待 T022/T023 完成后派）
+- **状态**：✅ DONE（2026-07-11，commit 1095899，100 借还 0 错误 0 YAML 损坏）
 - **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
 - **skill_used（目标）**：multi-search-engine, humanizer
 
