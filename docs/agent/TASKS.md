@@ -437,16 +437,18 @@
 - **目标**：`Tools/service_registry.py` 持有 ProfileStore/Pool/ProxyStore 单例
 - **验收**：单测覆盖注册/拿取
 - **截止**：2026-07-14 22:00
-- **状态**：⏳ PENDING（等 T-071/T-072 完成后）
-- **skill_used（目标）**：multi-search-engine, humanizer
+- **状态**：✅ DONE（2026-07-11，commit 29b1448 pushed，16 tests passed）
+- **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
+- **skill_used**：multi-search-engine（搜索超时，用知识储备实现 singleton 最佳实践）, humanizer
 
 ### XIAOQIAN-WEBAUTO-T093 — ServiceRegistry 生命周期管理
 - **任务来源**：TASKLIST.md T-093
 - **目标**：`lifecycle()` async context manager，退出时自动 `pool.stop()` + `flush()`
 - **验收**：with lifecycle() 退出后 flush task done、YAML 已落盘
 - **截止**：2026-07-14 22:00
-- **状态**：⏳ PENDING（等 T-073 完成后）
-- **skill_used（目标）**：multi-search-engine, humanizer
+- **状态**：✅ DONE（2026-07-11，commit 29b1448 pushed，3 lifecycle tests passed）
+- **派活人**：大白（skill v1.3，含 multi-search-engine + humanizer）
+- **skill_used**：multi-search-engine（搜索超时，用知识储备实现）, humanizer
 
 ### XIAOQIAN-WEBAUTO-T081 — mcp_server.py MCP 入口
 - **任务来源**：TASKLIST.md T-081
@@ -524,26 +526,30 @@
 - **任务来源**：TASKLIST.md T-082
 - **目标**：MCP profile 8 tool schema 文档化
 - **截止**：2026-07-16 22:00
-- **状态**：⏳ PENDING（等 T-081 完成后）
+- **状态**：✅ DONE（2026-07-11，commit a7d5682，docs/MCP/profile_backend.md）
+- **skill_used（实际）**：multi-search-engine（Kimi 429，用代码阅读）, humanizer
 - **skill_used（目标）**：multi-search-engine, humanizer
 
 ### XIADOU-WEBAUTO-T083 — MCP proxy 8 tool 清单
 - **任务来源**：TASKLIST.md T-083
 - **目标**：MCP proxy 8 tool schema 文档化
 - **截止**：2026-07-16 22:00
-- **状态**：⏳ PENDING（等 T-081 完成后）
+- **状态**：✅ DONE（2026-07-11，commit a7d5682，docs/MCP/proxy_backend.md）
+- **skill_used（实际）**：multi-search-engine, humanizer
 - **skill_used（目标）**：multi-search-engine, humanizer
 
 ### XIADOU-WEBAUTO-T084 — MCP pool 8 tool 清单
 - **任务来源**：TASKLIST.md T-084
 - **目标**：MCP pool 8 tool schema 文档化（含 set_strategy/set_max_concurrent/uncooldown）
 - **截止**：2026-07-16 22:00
-- **状态**：⏳ PENDING（等 T-081/T-090/T-091 完成后）
+- **状态**：✅ DONE（2026-07-11，commit a7d5682，docs/MCP/pool.md）
+- **skill_used（实际）**：multi-search-engine, humanizer
 - **skill_used（目标）**：multi-search-engine, humanizer
 
 ### XIADOU-WEBAUTO-T089 — README MCP 集成章节
 - **任务来源**：TASKLIST.md T-089
 - **目标**：README 新增 MCP 集成章节（mcp.json 示例 + 24 tools 一览表）
 - **截止**：2026-07-16 22:00
-- **状态**：⏳ PENDING（等 T-081~T-087 完成后）
+- **状态**：✅ DONE（2026-07-11，commit a7d5682，README.md 新增章节）
+- **skill_used（实际）**：multi-search-engine, humanizer
 - **skill_used（目标）**：multi-search-engine, humanizer
