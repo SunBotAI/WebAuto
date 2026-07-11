@@ -16,6 +16,10 @@ __pycache__/
 dist/
 build/
 
+# pytest + OpenClaw
+.pytest_cache/
+.claude/
+
 # 截图和录屏
 demo/*.png
 demo/*.jpg
