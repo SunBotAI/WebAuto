@@ -239,6 +239,37 @@ def build_console_tab() -> None:
         phone_poll_timer = gr.Timer(value=3)
         phone_poll_timer.tick(fn=_do_phone_poll, outputs=[phone_stage, phone_status])
 
+        # ── 子折叠:已保存账号列表(登录成功后自动刷新到这里) ──
+        with gr.Accordion("📋 已保存账号(token/cookie 不显示)", open=False):
+            c_accounts_table = gr.Dataframe(
+                headers=["账号名", "手机号(脱敏)", "user_id", "保存时间", "有 token", "有 cookie"],
+                datatype=["str"] * 6,
+                value=[],
+                interactive=False,
+            )
+            c_accounts_refresh = gr.Button("🔄 刷新列表")
+
+            def _c_list_rows():
+                try:
+                    accounts = _run(_cred_backend_phone.list_accounts())
+                    rows = []
+                    for a in accounts:
+                        rows.append([
+                            a.get("name", ""),
+                            a.get("phone", ""),
+                            a.get("user_id", ""),
+                            a.get("saved_at", ""),
+                            "✅" if a.get("has_token") else "—",
+                            "✅" if a.get("has_cookie") else "—",
+                        ])
+                    return rows
+                except Exception as e:
+                    return [[f"(读取失败: {e})", "", "", "", "", ""]]
+
+            c_accounts_refresh.click(fn=_c_list_rows, outputs=[c_accounts_table])
+            # 登录成功 → 自动刷新该表
+            phone_poll_timer.tick(fn=_c_list_rows, outputs=[c_accounts_table])
+
 
     # ── 套餐配置(多组) ───────────────────────────────────────────
     with gr.Row():

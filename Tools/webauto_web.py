@@ -249,19 +249,51 @@ def _build_credential_tab():
             value=[],
             interactive=False,
         )
-        t3_refresh.click(
-            fn=lambda: [],
-            outputs=[t3_table],
-        )
+
+        def _t3_list_rows():
+            try:
+                from Tools.credential_backend import CredentialBackend
+                backend = CredentialBackend(ask=False)
+                accounts = _run(backend.list_accounts())
+                rows = []
+                for a in accounts:
+                    rows.append([
+                        a.get("name", ""),
+                        a.get("phone", ""),
+                        a.get("user_id", ""),
+                        a.get("saved_at", ""),
+                        "✅" if a.get("has_token") else "—",
+                        "✅" if a.get("has_cookie") else "—",
+                    ])
+                return rows
+            except Exception as e:
+                return [[f"(读取失败: {e})", "", "", "", "", ""]]
+
+        def _t3_delete(name):
+            if not name.strip():
+                return "⚠️ 请填写要删除的账号名"
+            try:
+                from Tools.credential_backend import CredentialBackend
+                backend = CredentialBackend(ask=False)
+                result = _run(backend.delete_account(name.strip()))
+                if result.get("success"):
+                    return "✅ " + result.get("message", "")
+                return "❌ " + result.get("message", "失败")
+            except Exception as e:
+                return f"❌ 异常: {e}"
+
+        t3_refresh.click(fn=_t3_list_rows, outputs=[t3_table])
+        # 初始值:Tab 打开时刷一次
+        t3_table.value = _t3_list_rows()
+
         with gr.Row():
             t3_del_name = gr.Textbox(label="要删除的账号名", placeholder="主账号")
             t3_del_btn = gr.Button("🗑️ 删除", variant="stop")
             t3_del_result = gr.Textbox(label="删除结果", interactive=False)
+        # 删除后顺手刷新一次表格
         t3_del_btn.click(
-            fn=lambda name: "操作完成",
-            inputs=[t3_del_name],
-            outputs=[t3_del_result],
-        )
+            fn=_t3_delete, inputs=[t3_del_name], outputs=[t3_del_result]
+        ).then(fn=_t3_list_rows, outputs=[t3_table])
 
 
 # ─── 主程序 ─────────────────────────────────────────────────────

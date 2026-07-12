@@ -121,6 +121,30 @@ class Orchestrator:
             # 触发一次加载以校验口令
             self.secret_store.load()
             log.info("加密凭证库已就绪")
+            # 诊断 enabled=true 但 SecretStore+config 里都没凭证的账号
+            # (用户踩坑高发点:面板登录后账号名跟 config.yaml 对不上)
+            missing: list[str] = []
+            for acc in self.config.enabled_accounts:
+                stored = self.secret_store.get_account(acc.name) or {}
+                has_secret = bool(stored.get("token") or stored.get("cookie"))
+                has_config = bool(acc.token or acc.cookie)
+                if not (has_secret or has_config):
+                    missing.append(acc.name)
+            if missing:
+                log.warning(
+                    "以下 enabled 账号在加密凭证库和 config.yaml 里都没找到 "
+                    "token/cookie,抢购时会被跳过: "
+                    + ", ".join(missing)
+                    + ". 请到面板「手机号登录(自动)」扫码/收码补凭证,"
+                    "或手动补到 " + str(self.config.secret_store)
+                )
+            else:
+                try:
+                    stored_names = [a.get("name", "?") for a in self.secret_store.load()]
+                    if stored_names:
+                        log.info("加密凭证库已包含账号: " + ", ".join(stored_names))
+                except Exception:
+                    pass
         except CryptoError as e:
             log.warning(f"凭证库不可用（将以 config 明文凭证降级运行）: {e}")
             self.secret_store = None
