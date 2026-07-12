@@ -137,21 +137,16 @@ class Orchestrator:
             *(mgr.check_alive(s) for s in self.sessions)
         )
 
-        # 对失效账号尝试短信重登
+        # 失效账号直接排除。
+        # 智谱没有开放短信登录 API,API 层的"自动重登"已删除,
+        # 用户需在浏览器手动登录后把新 token/cookie 回填到凭证库。
         for session, alive in zip(self.sessions, alive_flags):
             if alive:
                 continue
-            log.warning(
-                f"[{session.account.name}] 登录态失效，尝试短信重登"
+            log.error(
+                f"[{session.account.name}] 登录态失效,跳过本账号。"
+                f"请在浏览器登录 https://bigmodel.cn 后回填 token/cookie"
             )
-            ok = await mgr.relogin_by_sms(session)
-            if ok:
-                # 再次探测
-                ok = await mgr.check_alive(session)
-            if not ok:
-                log.error(
-                    f"[{session.account.name}] 重登失败，该账号将被排除"
-                )
 
         # 过滤掉仍然失效的会话
         self.sessions = [s for s in self.sessions if s.user_id]

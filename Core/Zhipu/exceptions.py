@@ -51,8 +51,10 @@ class AuthError(ZhipuError):
     """登录态失效或未授权(code=401 / 4031 等)。
 
     **不重试**。重试毫无意义,必须重新登录。处理方式:
-      1. 触发短信重登(relogin_by_sms)
-      2. 或人工介入重新拿 token
+      - 抢购主流程会自动跳过失效账号并继续;用户需到浏览器手动登录
+        https://bigmodel.cn 后,把新 token/cookie 回填到加密凭证库。
+      - 旧的 API 短信重登(relogin_by_sms)已删除:智谱不开放该接口,
+        抢购链路不应再尝试 httpx 调用 /api/biz/code/smsCode/* 。
     """
 
 

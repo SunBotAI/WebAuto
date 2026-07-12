@@ -43,8 +43,11 @@ PATH_PRICING = "/api/biz/subscription/enterprise/v2/pricing"
 
 # 辅助
 PATH_RISK_INFO = "/api/biz/customer/risk/info"
-PATH_SMS_CODE = "/api/biz/code/smsCode/{phone}"
-PATH_CHECK_SMS_CODE = "/api/biz/code/checkSmsCode/{code}"
+# 历史路径(已下线):智谱没有开放短信登录 API,
+# 抢购链路发现 token 失效必须由用户在浏览器里手动登录后回填凭证,
+# 不要再尝试用 httpx 调这两条路径。
+# (旧) PATH_SMS_CODE = "/api/biz/code/smsCode/{phone}"
+# (旧) PATH_CHECK_SMS_CODE = "/api/biz/code/checkSmsCode/{code}"
 PATH_OPERATION_QUERY = "/api/biz/operation/query"
 
 # ---------------------------------------------------------------------------

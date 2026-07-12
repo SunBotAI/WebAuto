@@ -55,21 +55,6 @@ def _build_credential_tab():
             lines.append(f"提示: {result['expires_hint']}")
         return "\n".join(lines)
 
-    def _format_sms_result(result: dict) -> str:
-        stage = result.get("stage", "unknown")
-        success = result.get("success", False)
-        if stage == "code_sent":
-            return f"📤 {result.get('message', '验证码已发送')}"
-        if stage == "done":
-            prefix = "✅ 登录成功" if success else "❌ 登录失败"
-            msg = result.get("message", "")
-            uid = result.get("user_id", "")
-            out = f"{prefix}\n{msg}"
-            if uid:
-                out += f"\nuser_id: {uid}"
-            return out
-        return f"⚠️ {result.get('message', '未知阶段')}"
-
     def _accounts_to_rows(accounts: list[dict]) -> list[list]:
         if not accounts:
             return [[]] * 6
@@ -123,84 +108,22 @@ def _build_credential_tab():
             outputs=[t1_result],
         )
 
-    # Tab 2: 短信登录
-    with gr.Tab("短信登录"):
+    # Tab 2: 凭证导入(浏览器手动抓 token)
+    with gr.Tab("凭证导入"):
         gr.Markdown(
-            "用智谱账密 + 短信验证码登录\n"
-            "第一步：填账号名 + 手机号，点发送验证码\n"
-            "第二步：看到短信后填入验证码，点登录并保存"
-        )
-        with gr.Row():
-            with gr.Column():
-                t2_name = gr.Textbox(label="账号名", value="主账号")
-                t2_phone = gr.Textbox(label="手机号", placeholder="138xxxxxxxx")
-                with gr.Row():
-                    t2_send_btn = gr.Button("📤 发送验证码", variant="primary")
-                    t2_resend_btn = gr.Button("🔁 重发验证码")
-                t2_sms_status = gr.Textbox(
-                    label="短信状态", value="(未发送)", interactive=False, lines=2,
-                )
-                t2_code = gr.Textbox(
-                    label="短信验证码(6 位数字)",
-                    placeholder="短信里的 6 位数字",
-                    max_lines=1,
-                )
-                t2_login_btn = gr.Button("✅ 登录并保存", variant="primary")
-            with gr.Column():
-                t2_result = gr.Textbox(label="结果", interactive=False, lines=10)
-
-        sms_state = gr.State(value={"code_sent": False, "phone": "", "name": ""})
-
-        def _do_send_code(name, phone, state):
-            if not phone.strip():
-                return "⚠️ 请先填写手机号", state
-            from Tools.credential_backend import CredentialBackend
-            backend = CredentialBackend(
-                secret_store_path=".secrets.enc",
-                key_env="GLM_GRABBER_KEY",
-                ask=False,
-            )
-            result = _run(backend.login_by_sms(name, phone))
-            new_state = dict(state)
-            new_state["code_sent"] = result.get("stage") == "code_sent"
-            new_state["phone"] = phone
-            new_state["name"] = name
-            return _format_sms_result(result), new_state
-
-        def _do_login(name, phone, code, state):
-            if not code.strip():
-                return "⚠️ 请先填写 6 位短信验证码", state
-            if not phone.strip():
-                return "⚠️ 手机号不能为空", state
-            if state.get("phone") and state["phone"] != phone:
-                return f"⚠️ 你改了手机号，需要重新点发送验证码", state
-            from Tools.credential_backend import CredentialBackend
-            backend = CredentialBackend(
-                secret_store_path=".secrets.enc",
-                key_env="GLM_GRABBER_KEY",
-                ask=False,
-            )
-            result = _run(backend.login_by_sms(name, phone, sms_code=code))
-            if result.get("success"):
-                new_state = {"code_sent": False, "phone": "", "name": ""}
-            else:
-                new_state = state
-            return _format_sms_result(result), new_state
-
-        t2_send_btn.click(
-            fn=_do_send_code,
-            inputs=[t2_name, t2_phone, sms_state],
-            outputs=[t2_sms_status, sms_state],
-        )
-        t2_resend_btn.click(
-            fn=_do_send_code,
-            inputs=[t2_name, t2_phone, sms_state],
-            outputs=[t2_sms_status, sms_state],
-        )
-        t2_login_btn.click(
-            fn=_do_login,
-            inputs=[t2_name, t2_phone, t2_code, sms_state],
-            outputs=[t2_result, sms_state],
+            '**为什么没有“发送验证码”按钮?**\n'
+            "\n"
+            "智谱没有给第三方开放短信登录的 API,`/api/biz/code/smsCode/{phone}` "
+            "在 2026-07 已经返回 HTTP 404,且即便能调通也会被 magipack 风控拦截。\n"
+            "抢购链路不应再尝试自动短信重登——请按下面流程手动补凭证。\n"
+            "\n"
+            "1. Chrome/Firefox 打开 https://bigmodel.cn/glm-coding,用账密/扫码正常登录\n"
+            "2. DevTools → Network → 任意请求 → 复制 **Authorization: Bearer ...** 里的 token\n"
+            "   以及 **Cookie** 请求头里的整段 cookie\n"
+            "3. 在 **Tab 1: 验证 Token** 粘贴 → 点 **验证并保存**\n"
+            "\n"
+            "抢购启动时如检测到某账号 token 已失效,日志会明确说「该账号被跳过」,\n"
+            "再到浏览器重复上面步骤回填新凭证即可。\n"
         )
 
     # Tab 3: 已保存账号

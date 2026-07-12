@@ -35,22 +35,6 @@ from Tools.console_backend import (
 )
 
 
-def _format_sms_result(result: dict) -> str:
-    stage = result.get("stage", "?")
-    success = result.get("success")
-    msg = result.get("message", "")
-    lines = [f"📡 阶段: {stage}", f"📝 {msg}"]
-    if "user_id" in result:
-        if result.get("user_id"):
-            lines.append(f"👤 user_id: {result['user_id']}")
-        if result.get("customer_number"):
-            lines.append(f"🔢 customer_number: {result['customer_number']}")
-        if result.get("expires_hint"):
-            lines.append(f"⏰ {result['expires_hint']}")
-    lines.append(f"{'✅ 成功' if success else '❌ 失败' if success is False else ''}".strip())
-    return "\n".join(lines)
-
-
 def _run(coro):
     loop = asyncio.new_event_loop()
     try:
@@ -117,51 +101,24 @@ def build_console_tab() -> None:
         "所有参数在页面配置,不用改 yaml。点 [🔥 开始抢] 后等倒计时到点自动下单。"
     )
 
-    # ── 顶部:账号登录(SMS 验证码) ─────────────────────────────────
-    with gr.Accordion("📱 账号登录(SMS 验证码)- 不登录也能抢,但账号必须有 token", open=False):
-        from Tools.credential_backend import CredentialBackend
-        _cred_backend = CredentialBackend()
-
-        with gr.Row():
-            with gr.Column(scale=1):
-                login_name = gr.Textbox(label="账号名", placeholder="主账号(用于在抢单账号列表里识别)")
-                login_phone = gr.Textbox(label="手机号", placeholder="138xxxxxxxx")
-                login_send_btn = gr.Button("📤 发送验证码", variant="primary")
-            with gr.Column(scale=1):
-                login_code = gr.Textbox(label="短信验证码(6 位)", placeholder="收到的 6 位数字", max_lines=1)
-                login_submit_btn = gr.Button("✅ 登录并保存", variant="primary")
-                login_status = gr.Textbox(label="登录状态", value="(未发送)", interactive=False, lines=4)
-
-        sms_state = gr.State(value={"code_sent": False, "name": "", "phone": ""})
-        _accounts_bridge: dict[str, Any] = {"state": None}
-
-        def _do_send_code(name, phone, state):
-            if not phone.strip():
-                return "⚠️ 请先填写手机号", state
-            if not name.strip():
-                return "⚠️ 请先填写账号名", state
-            result = _run(_cred_backend.login_by_sms(name, phone))
-            new_state = dict(state)
-            new_state["code_sent"] = result.get("stage") == "code_sent"
-            new_state["phone"] = phone
-            new_state["name"] = name
-            return _format_sms_result(result), new_state
-
-        def _do_login(name, phone, code, state):
-            if not code.strip():
-                return "⚠️ 请先填写 6 位短信验证码", state
-            result = _run(_cred_backend.login_by_sms(name, phone, sms_code=code))
-            msg = _format_sms_result(result)
-            if result.get("stage") == "done" and result.get("success"):
-                bridge = _accounts_bridge
-                current = bridge["state"]
-                if current is not None:
-                    new_state = add_account(current, name=name.strip(), phone=phone.strip())
-                    bridge["state"] = new_state
-            return msg, state
-
-        login_send_btn.click(fn=_do_send_code, inputs=[login_name, login_phone, sms_state], outputs=[login_status, sms_state])
-        login_submit_btn.click(fn=_do_login, inputs=[login_name, login_phone, login_code, sms_state], outputs=[login_status, sms_state])
+    # ── 顶部:账号凭证(从浏览器手动获取) ─────────────────────────────
+    with gr.Accordion("🔑 账号凭证(token/cookie) - 智谱不开放短信登录 API,需手动从浏览器抓取", open=False):
+        gr.Markdown(
+            '**为什么没有“发送验证码”按钮?**\n'
+            "\n"
+            "智谱没有给第三方开放短信登录的 API。之前代码里调用 `/api/biz/code/smsCode/{phone}` 的方式\n"
+            "在 2026-07 已经返回 HTTP 404,且即便能调通也会被 magipack 风控拦截(没有浏览器上下文里的\n"
+            "captchaId / 指纹字段)。**抢购链路不应再尝试自动短信重登。**\n"
+            "\n"
+            "**正确流程**\n"
+            "1. 在 Chrome/Firefox 打开 `https://bigmodel.cn/glm-coding`,用账密或扫码正常登录\n"
+            "2. DevTools → Network → 任意请求 → 复制 **Authorization: Bearer ...** 里的 token\n"
+            "   以及 **Cookie** 请求头里的整段 cookie\n"
+            '3. 在下方 “抓取 Token” 区粘贴,点 **验证并保存**,凭证会自动加密落到 `.secrets.enc`\n'
+            "\n"
+            "如果抢购启动时发现某个账号的 token 已失效,日志会明确指出**该账号被跳过**,\n"
+            "此时再到浏览器重复上述步骤回填新凭证即可。\n"
+        )
 
     # ── 套餐配置(多组) ───────────────────────────────────────────
     with gr.Row():

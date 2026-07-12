@@ -1,7 +1,7 @@
 """智谱凭证管理业务后端.
 
 独立于 Gradio UI,可以单独用 Python 脚本调用。所有公开方法都是 async,
-因为内部要调 BigModelApi.get_customer_info() 验证 token / 调短信接口。
+因为内部要调 BigModelApi.get_customer_info() 验证 token。
 
 Usage (脚本)::
 
@@ -150,7 +150,7 @@ class CredentialBackend:
 
         Args:
             account_name: 账号名(本地标识,如"主账号")。
-            phone: 手机号(短信登录用,这里仅记录)。
+            phone: 手机号(账号标识用)。
             token: Bearer token(从浏览器 Authorization 头取)。
             cookie: 完整 Cookie(从浏览器 Cookie 取)。
 
@@ -210,104 +210,6 @@ class CredentialBackend:
                 "expires_hint": "",
             }
 
-    async def login_by_sms(
-        self,
-        account_name: str,
-        phone: str,
-        sms_code: str = "",
-    ) -> dict[str, Any]:
-        """短信登录。
-
-        两阶段:
-          第一阶段(sms_code 为空):
-            1. 用 PATH_SMS_CODE 发送验证码到 phone
-            2. 返回 {"stage": "code_sent", "message": "已发送,等待用户填入"}
-          第二阶段(sms_code 非空):
-            1. 用 PATH_CHECK_SMS_CODE 校验
-            2. 从响应头 set-cookie + body.token 拿到新凭证
-            3. _verify_token 验证
-            4. SecretStore 加密保存
-            5. 返回 {"stage": "done", "success": True/False, ...}
-        """
-        if not account_name.strip():
-            return {"stage": "error", "success": False, "message": "账号名不能为空"}
-        if not phone.strip():
-            return {"stage": "error", "success": False, "message": "手机号不能为空"}
-
-        cfg = AppConfig(
-            accounts=[Account(name=account_name, phone=phone)],
-            target_plan="Max",
-            billing_cycle="yearly",
-            pay_channel="alipay",
-        )
-        client = ApiClient(cfg, account_name=account_name)
-        client._phone = phone  # noqa: SLF001
-
-        try:
-            if not sms_code:
-                # 第一阶段:发验证码
-                from Core.Zhipu.constants import PATH_SMS_CODE
-                await client.request("GET", PATH_SMS_CODE.format(phone=phone))
-                log.info(f"[{account_name}] 验证码已发送到 {phone[:3]}****{phone[-4:]}")
-                return {
-                    "stage": "code_sent",
-                    "success": True,
-                    "message": f"验证码已发送到 {_mask_phone(phone)},请在下方填入收到的 6 位短信码",
-                }
-            else:
-                # 第二阶段:校验 + 拿凭证
-                from Core.Zhipu.constants import PATH_CHECK_SMS_CODE
-                from Core.Zhipu.http_client import set_cookies_to_cookie_string
-                resp = await client.request(
-                    "GET", PATH_CHECK_SMS_CODE.format(code=sms_code)
-                )
-                d = resp.get("data") if isinstance(resp, dict) else None
-                new_token = ""
-                if isinstance(d, dict):
-                    new_token = str(d.get("token") or "")
-                new_cookie = set_cookies_to_cookie_string(client._last_set_cookies)
-
-                if not new_token and not new_cookie:
-                    return {
-                        "stage": "done",
-                        "success": False,
-                        "message": "短信校验通过但未拿到新凭证,请检查接口返回结构",
-                    }
-
-                # 验证
-                verify = await self._verify_token(token=new_token, cookie=new_cookie)
-                if not verify["valid"]:
-                    return {
-                        "stage": "done",
-                        "success": False,
-                        "message": f"短信登录成功但 token 无效: {verify['error']}",
-                    }
-
-                # 保存
-                store = self._get_store(write=True)
-                store.upsert_account({
-                    "name": account_name.strip(),
-                    "phone": phone.strip(),
-                    "token": new_token,
-                    "cookie": new_cookie,
-                    "saved_at": datetime.now(timezone.utc).isoformat(),
-                    "last_check": datetime.now(timezone.utc).isoformat(),
-                    "user_id": verify["user_id"],
-                })
-                return {
-                    "stage": "done",
-                    "success": True,
-                    "message": f"✅ 短信登录成功,账号 [{account_name}] 已加密保存",
-                    "user_id": verify["user_id"],
-                }
-        except AuthError as e:
-            return {"stage": "done", "success": False, "message": f"短信码错误或已过期: {e}"}
-        except NetworkError as e:
-            return {"stage": "done", "success": False, "message": f"网络错误: {e}"}
-        except ZhipuError as e:
-            return {"stage": "done", "success": False, "message": str(e)}
-        finally:
-            await client.aclose()
 
     async def list_accounts(self) -> list[dict[str, Any]]:
         """列出已保存的账号(脱敏后给 UI 显示)。
@@ -365,7 +267,7 @@ class CredentialBackend:
                 "configured": False,
                 "message": (
                     f"⚠️ 未设置 {self.key_env} 环境变量。\n"
-                    f"粘贴 token/短信登录功能仍然可用,但保存的凭证将用临时口令加密,\n"
+                    f"粘贴 token 仍可用,但保存的凭证将用临时口令加密,\n"
                     f"重启后无法读取。\n\n"
                     f"建议:export {self.key_env}=<your-passphrase>"
                 ),
