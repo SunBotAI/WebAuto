@@ -135,8 +135,11 @@ def build_console_tab() -> None:
                 phone_submit = gr.Button("📨 提交短信码", variant="primary")
                 phone_status = gr.Textbox(label="状态", value="", interactive=False, lines=5)
 
-        def _do_phone_start(name, phone):
-            # 检查 task 实际状态,而非只信 running flag(stale flag 会卡住)
+        async def _do_phone_start(name, phone):
+            # 改成 async 后,gradio 在主 asyncio loop 上 await 这个 handler,
+            # 我们直接在主 loop 上 create_task 跑后台 Playwright 流程。
+            # 之前用 def + 手动 new loop 会导致 task 跑在错 loop,
+            # 共享 dict 写不进去、timer poll 永远拿不到。
             existing_task = _phone_login_state.get("task")
             if existing_task is not None and not existing_task.done():
                 return ("已在运行中", None,
@@ -153,23 +156,16 @@ def build_console_tab() -> None:
 
             progress_log: list[str] = []
 
-            def _cb(p):
-                line = f"📡 {p.stage}: {p.message}"
+            def _cb(progress):
+                # 签名匹配 phone_login_capture.emit 传的 progress( dataclass)
+                line = f"📡 {progress.stage}: {progress.message}"
                 progress_log.append(line)
                 _phone_login_state["stage_text"] = line
-                if p.captcha_b64:
+                if progress.captcha_b64:
                     # 跨 handler 共享,poll 会从这里取最新截图
-                    _phone_login_state["captcha_b64"] = p.captcha_b64
+                    _phone_login_state["captcha_b64"] = progress.captcha_b64
 
-            import asyncio as _aio
-            try:
-                loop = _aio.get_event_loop()
-                if loop.is_closed():
-                    raise RuntimeError("no loop")
-            except RuntimeError:
-                loop = _aio.new_event_loop()
-                _aio.set_event_loop(loop)
-
+            loop = asyncio.get_running_loop()  # gradio 主 loop
             sms_future = loop.create_future()
             async def _wrap_provider() -> str:
                 return await sms_future

@@ -205,10 +205,14 @@ async def phone_login_capture(
     progress = AutoLoginProgress(account_name=account_name)
     captcha_b64 = ""
 
-    def emit(stage: str, message: str):
+    def emit(stage: str, message: str, *, captcha_b64: str = ""):
+        # 写 progress 字段(给上层可能还要读),再调 callback
         progress.stage = stage
         progress.message = message
+        if captcha_b64:
+            progress.captcha_b64 = captcha_b64
         if progress_callback:
+            # 把 progress 对象传给 callback,跟 AutoLoginProgress 形态一致
             progress_callback(progress)
 
     emit("init", "启动浏览器...")
@@ -318,8 +322,8 @@ async def phone_login_capture(
                         "error": "captcha_not_appeared"}
 
             emit("captcha_ready",
-                 "请在浏览器里**按顺序点汉字**,点完会自己消失; 验证码下发到手机后请在面板填 6 位码")
-            progress.captcha_b64 = captcha_b64  # 给 UI 一张
+                 "请在浏览器里按顺序点汉字,点完会自动消失; 短信下发后请在面板填 6 位码",
+                 captcha_b64=captcha_b64)
 
             # 6. 轮询:等 captcha 消失(用户点完了)或超时
             result = await _wait_captcha_passed(page, timeout_sec=timeout_sec)
