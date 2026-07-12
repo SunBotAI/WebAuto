@@ -85,6 +85,9 @@ def build_console_tab() -> None:
             build_console_tab()
     """
     import gradio as gr
+    # 模块级 bridge:跨函数调用同步账号列表(SMS 已下线但 add_account 仍依赖)
+    global _accounts_bridge  # noqa: PLW0603
+    _accounts_bridge = {"state": None}
 
     initial_state = ConsoleState()
     initial_state = add_account(initial_state)
@@ -101,24 +104,63 @@ def build_console_tab() -> None:
         "所有参数在页面配置,不用改 yaml。点 [🔥 开始抢] 后等倒计时到点自动下单。"
     )
 
-    # ── 顶部:账号凭证(从浏览器手动获取) ─────────────────────────────
-    with gr.Accordion("🔑 账号凭证(token/cookie) - 智谱不开放短信登录 API,需手动从浏览器抓取", open=False):
-        gr.Markdown(
-            '**为什么没有“发送验证码”按钮?**\n'
-            "\n"
-            "智谱没有给第三方开放短信登录的 API。之前代码里调用 `/api/biz/code/smsCode/{phone}` 的方式\n"
-            "在 2026-07 已经返回 HTTP 404,且即便能调通也会被 magipack 风控拦截(没有浏览器上下文里的\n"
-            "captchaId / 指纹字段)。**抢购链路不应再尝试自动短信重登。**\n"
-            "\n"
-            "**正确流程**\n"
-            "1. 在 Chrome/Firefox 打开 `https://bigmodel.cn/glm-coding`,用账密或扫码正常登录\n"
-            "2. DevTools → Network → 任意请求 → 复制 **Authorization: Bearer ...** 里的 token\n"
-            "   以及 **Cookie** 请求头里的整段 cookie\n"
-            '3. 在下方 “抓取 Token” 区粘贴,点 **验证并保存**,凭证会自动加密落到 `.secrets.enc`\n'
-            "\n"
-            "如果抢购启动时发现某个账号的 token 已失效,日志会明确指出**该账号被跳过**,\n"
-            "此时再到浏览器重复上述步骤回填新凭证即可。\n"
-        )
+    # ── 顶部:指纹扫码登录(自动) ─────────────────────────────────
+    # 点 "🚀 扫码登录(自动)" → 本地拉一个带指纹的 Chromium(走 Core.AntiDetect),
+    # 自动打开 bigmodel.cn/passport/login,截二维码到面板,你用手机智谱 App 扫一下,
+    # 登录成功后 Playwright 自动从 cookie/localStorage 抽 token,
+    # 走 CredentialBackend.auto_login_and_save 验证 + 加密落 .secrets.enc。
+    # 全程不需要你手动去官网点。
+    with gr.Accordion("🛡️ 指纹扫码登录(自动) - 本地起 Chromium + 抓 token + 加密存", open=False):
+        from Tools.credential_backend import CredentialBackend
+        _cred_backend_qr = CredentialBackend()
+
+        with gr.Row():
+            with gr.Column(scale=1):
+                qr_name = gr.Textbox(label="账号名", placeholder="主账号")
+                qr_phone = gr.Textbox(label="手机号(可选,仅记录)", placeholder="138xxxxxxxx")
+                qr_start = gr.Button("🚀 扫码登录(自动)", variant="primary")
+                qr_stage = gr.Textbox(label="阶段", value="(未开始)", interactive=False)
+            with gr.Column(scale=1):
+                qr_image = gr.Image(label="二维码(用智谱 App 扫)", height=240)
+                qr_status = gr.Textbox(label="状态", value="", interactive=False, lines=4)
+
+        def _do_qr_login(name, phone):
+            if not name.strip():
+                return "(未开始)", None, "⚠️ 请先填写账号名"
+
+            progress_log: list[str] = []
+
+            def _cb(p):
+                line = f"📡 {p.stage}: {p.message}"
+                progress_log.append(line)
+                # gradio 在 generator 里不实时刷新,我们在 done 时一次性回灌
+                qr_stage.value = line  # 立即给一个最新值
+
+            async def _go():
+                return await _cred_backend_qr.auto_login_and_save(
+                    account_name=name,
+                    phone=phone,
+                    timeout_sec=180,
+                    progress_callback=_cb,
+                )
+
+            result = _run(_go())
+            qr_b64 = result.get("qrcode_b64", "") or ""
+            qr_img = None
+            if qr_b64:
+                import base64
+                qr_img = base64.b64decode(qr_b64)
+            summary = "\n".join(progress_log[-8:]) if progress_log else ""
+            if result.get("success"):
+                summary += (
+                    f"\n✅ 已加密保存 → {result.get('store_path', '.secrets.enc')}\n"
+                    f"👤 user_id: {result.get('user_id', '')}"
+                )
+            else:
+                summary += f"\n❌ {result.get('message', '失败')}"
+            return progress_log[-1] if progress_log else "done", qr_img, summary
+
+        qr_start.click(fn=_do_qr_login, inputs=[qr_name, qr_phone], outputs=[qr_stage, qr_image, qr_status])
 
     # ── 套餐配置(多组) ───────────────────────────────────────────
     with gr.Row():

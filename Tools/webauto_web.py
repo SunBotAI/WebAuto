@@ -108,23 +108,64 @@ def _build_credential_tab():
             outputs=[t1_result],
         )
 
-    # Tab 2: 凭证导入(浏览器手动抓 token)
-    with gr.Tab("凭证导入"):
+    # Tab 2: 指纹扫码登录(自动)
+    with gr.Tab("🛡️ 扫码登录(自动)"):
         gr.Markdown(
-            '**为什么没有“发送验证码”按钮?**\n'
+            "**本地起 Chromium + 抓 token + 加密存**\n"
             "\n"
-            "智谱没有给第三方开放短信登录的 API,`/api/biz/code/smsCode/{phone}` "
-            "在 2026-07 已经返回 HTTP 404,且即便能调通也会被 magipack 风控拦截。\n"
-            "抢购链路不应再尝试自动短信重登——请按下面流程手动补凭证。\n"
+            "点下面的按钮 → WebAuto 在本地拉一个带指纹的浏览器(走 Core.AntiDetect),\n"
+            "自动打开智谱登录页,截二维码显示到面板;你用手机智谱 App 扫一下,\n"
+            "登录成功后 Playwright 自动从 cookie/localStorage 抽 token,\n"
+            "验证通过后加密落到 `.secrets.enc`。\n"
             "\n"
-            "1. Chrome/Firefox 打开 https://bigmodel.cn/glm-coding,用账密/扫码正常登录\n"
-            "2. DevTools → Network → 任意请求 → 复制 **Authorization: Bearer ...** 里的 token\n"
-            "   以及 **Cookie** 请求头里的整段 cookie\n"
-            "3. 在 **Tab 1: 验证 Token** 粘贴 → 点 **验证并保存**\n"
-            "\n"
-            "抢购启动时如检测到某账号 token 已失效,日志会明确说「该账号被跳过」,\n"
-            "再到浏览器重复上面步骤回填新凭证即可。\n"
+            "**不需要你手动去官网点任何东西。**\n"
         )
+        with gr.Row():
+            with gr.Column():
+                t2_name = gr.Textbox(label="账号名", placeholder="主账号")
+                t2_phone = gr.Textbox(label="手机号(可选,仅记录)", placeholder="138xxxxxxxx")
+                t2_qr_btn = gr.Button("🚀 扫码登录(自动)", variant="primary")
+                t2_stage = gr.Textbox(label="阶段", value="(未开始)", interactive=False)
+            with gr.Column():
+                t2_qr_img = gr.Image(label="二维码(用智谱 App 扫)", height=240)
+                t2_qr_status = gr.Textbox(label="状态", value="", interactive=False, lines=6)
+
+        def _do_qr_login(name, phone):
+            if not name.strip():
+                return "(未开始)", None, "⚠️ 请先填写账号名"
+
+            from Tools.credential_backend import CredentialBackend
+            backend = CredentialBackend(ask=False)
+            progress_log: list[str] = []
+
+            def _cb(p):
+                progress_log.append(f"📡 {p.stage}: {p.message}")
+
+            async def _go():
+                return await backend.auto_login_and_save(
+                    account_name=name,
+                    phone=phone,
+                    timeout_sec=180,
+                    progress_callback=_cb,
+                )
+
+            result = _run(_go())
+            qr_b64 = result.get("qrcode_b64", "") or ""
+            qr_img = None
+            if qr_b64:
+                import base64
+                qr_img = base64.b64decode(qr_b64)
+            summary = "\n".join(progress_log[-10:]) if progress_log else ""
+            if result.get("success"):
+                summary += (
+                    f"\n✅ 已加密保存 → {result.get('store_path', '.secrets.enc')}\n"
+                    f"👤 user_id: {result.get('user_id', '')}"
+                )
+            else:
+                summary += f"\n❌ {result.get('message', '失败')}"
+            return progress_log[-1] if progress_log else "done", qr_img, summary
+
+        t2_qr_btn.click(fn=_do_qr_login, inputs=[t2_name, t2_phone], outputs=[t2_stage, t2_qr_img, t2_qr_status])
 
     # Tab 3: 已保存账号
     with gr.Tab("已保存账号"):
