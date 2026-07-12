@@ -21,6 +21,8 @@ r"""智谱 GLM Coding 本地 mock target (零依赖 + 零风控)。
     POST /api/biz/codeinterpreter/bizOrderLimit/check               check 校验 bizId
     POST /api/biz/codeinterpreter/bizOrderLimit/create              创建订单(不真下单)
     POST /api/biz/user/sms/login                                    验证码登录(任何 code 都通)
+    GET  /api/biz/code/smsCode/{phone}                               第一阶段:发短信验证码(任意 phone 都通)
+    GET  /api/biz/code/checkSmsCode/{code}                           第二阶段:校验短信码(任意 4-8 位数字都通;0000/9999 失败)
     GET  /test                                                      永远 401,用于测试错误处理
 
 为什么 stdlib:
@@ -45,6 +47,13 @@ MOCK_USER = {
 }
 
 MOCK_BIZID = "mock-biz-1234-5678-9abc-def0"
+# 短信登录两阶段使用的"任意码放行"白名单:
+#   - 第一阶段 GET  /api/biz/code/smsCode/{phone}      → 任意 phone 都返回 sent=True
+#   - 第二阶段 GET  /api/biz/code/checkSmsCode/{code}  → 任意 4~8 位数字 code 都返回 token
+# 与真实智谱接口不同(magipack 风控会校验手机号归属地),此处只用于本地闭环。
+MOCK_SMS_CODE_MIN = 4
+MOCK_SMS_CODE_MAX = 8
+MOCK_SMS_FAIL_CODES = {"0000", "9999"}  # 显式触发"校验失败",便于测试异常分支
 
 MOCK_PRICING = {
     "plans": [
@@ -103,6 +112,53 @@ class MockHandler(BaseHTTPRequestHandler):
             self._json(200, MOCK_USER)
         elif path == "/api/biz/codeinterpreter/priceAndCurrencyNew":
             self._json(200, MOCK_PRICING)
+        elif path.startswith("/api/biz/code/smsCode/"):
+            # 第一阶段:发送验证码。任意 phone 都返回 sent=True,
+            # 真实环境 magipack 会校验手机号归属地,这里不模拟。
+            phone = path.rsplit("/", 1)[-1]
+            self._json(200, {
+                "phone":    phone,
+                "sent":     True,
+                "expireIn": 300,
+            })
+        elif path.startswith("/api/biz/code/checkSmsCode/"):
+            # 第二阶段:校验验证码。
+            code = path.rsplit("/", 1)[-1]
+            if code in MOCK_SMS_FAIL_CODES:
+                self._json(200, {
+                    "code":    code,
+                    "valid":   False,
+                    "message": "验证码错误(mock)",
+                })
+                return
+            if not (code.isdigit() and MOCK_SMS_CODE_MIN <= len(code) <= MOCK_SMS_CODE_MAX):
+                self._json(200, {
+                    "code":    code,
+                    "valid":   False,
+                    "message": f"验证码长度需在 {MOCK_SMS_CODE_MIN}~{MOCK_SMS_CODE_MAX} 位数字(mock)",
+                })
+                return
+            # 校验通过:下发 token + set-cookie,供 ApiClient._last_set_cookies 抽取
+            token = f"mock-token-{uuid.uuid4().hex[:16]}"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Set-Cookie",
+                             f"bigmodel_token={token}; Path=/; HttpOnly")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Expose-Headers", "Set-Cookie")
+            body = json.dumps({
+                "code": 200,
+                "msg":  "success",
+                "data": {
+                    "token":    token,
+                    "loggedIn": True,
+                    "userId":   MOCK_USER["userId"],
+                },
+            }, ensure_ascii=False).encode()
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         elif path == "/test":
             self._json(401, {"error": "unauthorized"}, status=401)
         elif path == "/":
