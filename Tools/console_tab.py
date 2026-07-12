@@ -148,8 +148,13 @@ def build_console_tab() -> None:
             qr_b64 = result.get("qrcode_b64", "") or ""
             qr_img = None
             if qr_b64:
-                import base64
-                qr_img = base64.b64decode(qr_b64)
+                import base64, io
+                try:
+                    from PIL import Image
+                    qr_img = Image.open(io.BytesIO(base64.b64decode(qr_b64)))
+                except Exception:
+                    # 退一步:把 raw base64 字符串也喂不进去,直接给 None 让 gradio 显示占位
+                    qr_img = None
             summary = "\n".join(progress_log[-8:]) if progress_log else ""
             if result.get("success"):
                 summary += (
