@@ -212,11 +212,18 @@ async def phone_login_capture(
             progress_callback(progress)
 
     emit("init", "启动浏览器...")
+    browser = None  # 给 finally 用
     try:
         async with async_playwright() as p:
+            import tempfile, os
+            # 每次启动用临时 user-data-dir,避免复用旧 cookie 导致智谱跳过验证码
+            ud = tempfile.mkdtemp(prefix="wa-zhipu-")
             browser = await p.chromium.launch(
                 headless=headless,
-                args=["--no-sandbox", "--disable-dev-shm-usage"],
+                args=[
+                    "--no-sandbox", "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                ],
             )
             context = await browser.new_context(
                 viewport={"width": 1280, "height": 800},
@@ -227,6 +234,7 @@ async def phone_login_capture(
                 ),
                 locale="zh-CN",
                 timezone_id="Asia/Shanghai",
+                ignore_https_errors=True,
             )
             try:
                 from Core.AntiDetect import AntiDetectInjector
@@ -288,6 +296,9 @@ async def phone_login_capture(
                         "captcha_b64": "", "sms_sent": False, "error": str(e)}
 
             # 5. 等腾讯点选弹窗出现
+            # 注:不在这里做长轮询 — 长轮询会让我们在 12s 里反复触发风控,
+            # 用户在浏览器里点完汉字后,弹窗消失会被 _wait_captcha_passed 捕获。
+            # 2.5s 够 dy-jy3.js + 弹层首屏渲染,不够的化以全屏截图兜底。
             await page.wait_for_timeout(2500)
             captcha_b64 = await _capture_captcha_screenshot(page)
             if not captcha_b64:
@@ -466,6 +477,13 @@ async def phone_login_capture(
                 "token": "", "cookie": "", "user_id": "",
                 "captcha_b64": captcha_b64, "sms_sent": False,
                 "error": str(e), "traceback": traceback.format_exc()}
+    finally:
+        # 兜底关 browser,防止异常路径残留 Chromium 进程
+        if browser is not None:
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
 
 async def auto_login_capture(

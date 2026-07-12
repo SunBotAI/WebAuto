@@ -136,12 +136,20 @@ def build_console_tab() -> None:
                 phone_status = gr.Textbox(label="状态", value="", interactive=False, lines=5)
 
         def _do_phone_start(name, phone):
-            if _phone_login_state["running"]:
-                return ("已在运行中", None, "⚠️ 已有一个登录任务在跑")
+            # 检查 task 实际状态,而非只信 running flag(stale flag 会卡住)
+            existing_task = _phone_login_state.get("task")
+            if existing_task is not None and not existing_task.done():
+                return ("已在运行中", None,
+                        "⚠️ 已有一个登录任务在跑(可点取消或等结束)")
             if not name.strip():
                 return ("(未开始)", None, "⚠️ 账号名必填")
             if not phone or len(phone) < 11:
                 return ("(未开始)", None, "⚠️ 手机号格式错(11 位)")
+            # 清 stale 状态
+            _phone_login_state["task"] = None
+            _phone_login_state["sms_future"] = None
+            _phone_login_state["running"] = False
+            _phone_login_state["provider"] = None
 
             progress_log: list[str] = []
             captcha_b64_holder: list[str] = [""]
