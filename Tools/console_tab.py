@@ -104,68 +104,141 @@ def build_console_tab() -> None:
         "所有参数在页面配置,不用改 yaml。点 [🔥 开始抢] 后等倒计时到点自动下单。"
     )
 
-    # ── 顶部:指纹扫码登录(自动) ─────────────────────────────────
-    # 点 "🚀 扫码登录(自动)" → 本地拉一个带指纹的 Chromium(走 Core.AntiDetect),
-    # 自动打开 bigmodel.cn/passport/login,截二维码到面板,你用手机智谱 App 扫一下,
-    # 登录成功后 Playwright 自动从 cookie/localStorage 抽 token,
-    # 走 CredentialBackend.auto_login_and_save 验证 + 加密落 .secrets.enc。
-    # 全程不需要你手动去官网点。
-    with gr.Accordion("🛡️ 指纹扫码登录(自动) - 本地起 Chromium + 抓 token + 加密存", open=False):
+    # ── 顶部:手机号+短信码登录(自动) ─────────────────────────────────
+    # 流程:
+    #   1) 填账号名+手机号,点"🚀 启动登录"
+    #   2) WebAuto 本地拉带指纹 Chromium(走 Core.AntiDetect)
+    #   3) 自动: 打开智谱首页 → 点"登录/注册" → 输手机号 → 点"获取验证码"
+    #   4) 腾讯防水墙按顺序点汉字验证弹窗出现 — **你用鼠标在浏览器里点**
+    #      (弹窗是浏览器层面的,面板只显示截图给你确认是哪张)
+    #   5) 验证通过 → 智谱下发短信到你手机 → **你在面板的 6 位码输入框里手输**
+    #   6) 自动: 提交登录 → 抽 token/cookie → 加密落 .secrets.enc
+    with gr.Accordion("📱 手机号登录(自动) - 指纹浏览器 + 腾讯点选 + 短信码", open=False):
         from Tools.credential_backend import CredentialBackend
-        _cred_backend_qr = CredentialBackend()
+        _cred_backend_phone = CredentialBackend()
+
+        # 跨 handler 共享:task handle / sms_future
+        _phone_login_state: dict = {"task": None, "sms_future": None, "running": False, "provider": None}
 
         with gr.Row():
             with gr.Column(scale=1):
-                qr_name = gr.Textbox(label="账号名", placeholder="主账号")
-                qr_phone = gr.Textbox(label="手机号(可选,仅记录)", placeholder="138xxxxxxxx")
-                qr_start = gr.Button("🚀 扫码登录(自动)", variant="primary")
-                qr_stage = gr.Textbox(label="阶段", value="(未开始)", interactive=False)
+                phone_name = gr.Textbox(label="账号名", placeholder="主账号")
+                phone_num = gr.Textbox(label="手机号(国内 11 位)", placeholder="138xxxxxxxx")
+                with gr.Row():
+                    phone_start = gr.Button("🚀 启动登录", variant="primary")
+                    phone_cancel = gr.Button("🛑 取消", variant="stop")
+                phone_stage = gr.Textbox(label="阶段", value="(未开始)", interactive=False)
             with gr.Column(scale=1):
-                qr_image = gr.Image(label="二维码(用智谱 App 扫)", height=240)
-                qr_status = gr.Textbox(label="状态", value="", interactive=False, lines=4)
+                phone_captcha = gr.Image(label="腾讯点选验证(浏览器里点)", height=200)
+                phone_sms = gr.Textbox(label="短信 6 位码(收到后填这里)", max_lines=1,
+                                        placeholder="短信里的 6 位数字")
+                phone_submit = gr.Button("📨 提交短信码", variant="primary")
+                phone_status = gr.Textbox(label="状态", value="", interactive=False, lines=5)
 
-        def _do_qr_login(name, phone):
+        def _do_phone_start(name, phone):
+            if _phone_login_state["running"]:
+                return ("已在运行中", None, "⚠️ 已有一个登录任务在跑")
             if not name.strip():
-                return "(未开始)", None, "⚠️ 请先填写账号名"
+                return ("(未开始)", None, "⚠️ 账号名必填")
+            if not phone or len(phone) < 11:
+                return ("(未开始)", None, "⚠️ 手机号格式错(11 位)")
 
             progress_log: list[str] = []
+            captcha_b64_holder: list[str] = [""]
 
             def _cb(p):
-                line = f"📡 {p.stage}: {p.message}"
-                progress_log.append(line)
-                # gradio 在 generator 里不实时刷新,我们在 done 时一次性回灌
-                qr_stage.value = line  # 立即给一个最新值
+                progress_log.append(f"📡 {p.stage}: {p.message}")
+                if p.captcha_b64:
+                    captcha_b64_holder[0] = p.captcha_b64
+
+            import asyncio as _aio
+            try:
+                loop = _aio.get_event_loop()
+                if loop.is_closed():
+                    raise RuntimeError("no loop")
+            except RuntimeError:
+                loop = _aio.new_event_loop()
+                _aio.set_event_loop(loop)
+
+            sms_future = loop.create_future()
+            async def _wrap_provider() -> str:
+                return await sms_future
+            _phone_login_state["provider"] = _wrap_provider
 
             async def _go():
-                return await _cred_backend_qr.auto_login_and_save(
+                return await _cred_backend_phone.phone_login_and_save(
                     account_name=name,
                     phone=phone,
+                    sms_code_provider=_wrap_provider,
                     timeout_sec=180,
                     progress_callback=_cb,
                 )
 
-            result = _run(_go())
-            qr_b64 = result.get("qrcode_b64", "") or ""
-            qr_img = None
-            if qr_b64:
+            task = loop.create_task(_go())
+            _phone_login_state["task"] = task
+            _phone_login_state["sms_future"] = sms_future
+            _phone_login_state["running"] = True
+
+            # 等几秒看 progress(不阻塞面板太久)
+            import time
+            for _ in range(20):
+                time.sleep(0.3)
+                if captcha_b64_holder[0] or task.done():
+                    break
+
+            img = None
+            if captcha_b64_holder[0]:
                 import base64, io
                 try:
                     from PIL import Image
-                    qr_img = Image.open(io.BytesIO(base64.b64decode(qr_b64)))
+                    img = Image.open(io.BytesIO(base64.b64decode(captcha_b64_holder[0])))
                 except Exception:
-                    # 退一步:把 raw base64 字符串也喂不进去,直接给 None 让 gradio 显示占位
-                    qr_img = None
-            summary = "\n".join(progress_log[-8:]) if progress_log else ""
-            if result.get("success"):
-                summary += (
-                    f"\n✅ 已加密保存 → {result.get('store_path', '.secrets.enc')}\n"
-                    f"👤 user_id: {result.get('user_id', '')}"
-                )
-            else:
-                summary += f"\n❌ {result.get('message', '失败')}"
-            return progress_log[-1] if progress_log else "done", qr_img, summary
+                    img = None
+            summary = "\n".join(progress_log[-8:]) if progress_log else "启动中..."
+            return (progress_log[-1] if progress_log else "init", img, summary)
 
-        qr_start.click(fn=_do_qr_login, inputs=[qr_name, qr_phone], outputs=[qr_stage, qr_image, qr_status])
+        def _do_phone_submit_sms(code):
+            fut = _phone_login_state.get("sms_future")
+            if fut is None or fut.done():
+                return "⚠️ 没有等待中的登录任务(可能已超时/取消)"
+            if not code or len(code.strip()) < 4:
+                return "⚠️ 短信码至少 4 位"
+            fut.get_loop().call_soon_threadsafe(fut.set_result, code.strip())
+            return "✅ 短信码已提交,等待登录..."
+
+        def _do_phone_cancel():
+            fut = _phone_login_state.get("sms_future")
+            task = _phone_login_state.get("task")
+            if fut is not None and not fut.done():
+                fut.get_loop().call_soon_threadsafe(fut.set_result, "")
+            if task is not None and not task.done():
+                task.cancel()
+            _phone_login_state["running"] = False
+            return "已取消"
+
+        def _do_phone_poll():
+            task = _phone_login_state.get("task")
+            if task is None:
+                return ("(未开始)", "未启动登录")
+            if task.done():
+                try:
+                    r = task.result()
+                except Exception as e:
+                    _phone_login_state["running"] = False
+                    return ("error", f"异常: {e}")
+                _phone_login_state["running"] = False
+                if r.get("success"):
+                    return ("done", f"✅ 登录成功 → {r.get('message', '')}\nuser_id: {r.get('user_id', '')}")
+                return ("failed", f"❌ {r.get('message', r.get('stage', 'failed'))}")
+            return ("waiting", "流程进行中... 等待:浏览器点汉字 + 面板填 6 位码")
+
+        phone_start.click(fn=_do_phone_start, inputs=[phone_name, phone_num],
+                          outputs=[phone_stage, phone_captcha, phone_status])
+        phone_submit.click(fn=_do_phone_submit_sms, inputs=[phone_sms], outputs=[phone_status])
+        phone_cancel.click(fn=_do_phone_cancel, outputs=[phone_status])
+        phone_poll_timer = gr.Timer(value=3)
+        phone_poll_timer.tick(fn=_do_phone_poll, outputs=[phone_stage, phone_status])
+
 
     # ── 套餐配置(多组) ───────────────────────────────────────────
     with gr.Row():

@@ -108,69 +108,136 @@ def _build_credential_tab():
             outputs=[t1_result],
         )
 
-    # Tab 2: 指纹扫码登录(自动)
-    with gr.Tab("🛡️ 扫码登录(自动)"):
+    # Tab 2: 手机号+短信码登录(自动)
+    with gr.Tab("📱 手机号登录(自动)"):
         gr.Markdown(
-            "**本地起 Chromium + 抓 token + 加密存**\n"
-            "\n"
-            "点下面的按钮 → WebAuto 在本地拉一个带指纹的浏览器(走 Core.AntiDetect),\n"
-            "自动打开智谱登录页,截二维码显示到面板;你用手机智谱 App 扫一下,\n"
-            "登录成功后 Playwright 自动从 cookie/localStorage 抽 token,\n"
-            "验证通过后加密落到 `.secrets.enc`。\n"
-            "\n"
-            "**不需要你手动去官网点任何东西。**\n"
+            "**流程: 启动登录 → 浏览器自动打开智谱首页 → 点登录 → 输手机号 → 触发腾讯点选**",
+            "**你在浏览器里用鼠标点汉字 → 等短信 → 面板填 6 位码 → 自动登录 → 落加密库**",
+            "",
+            "面板上的「验证码截图」仅供你确认是哪张图;汉字必须用鼠标在浏览器里点",
+            '面板上的「验证码截图」仅供你确认是哪张图;汉字必须用鼠标在浏览器里点\n'
+            "(弹窗是浏览器层面的,Playwright 控制不了鼠标语义)。\n"
         )
+        _t2_state: dict = {"task": None, "sms_future": None, "running": False}
+
         with gr.Row():
             with gr.Column():
                 t2_name = gr.Textbox(label="账号名", placeholder="主账号")
-                t2_phone = gr.Textbox(label="手机号(可选,仅记录)", placeholder="138xxxxxxxx")
-                t2_qr_btn = gr.Button("🚀 扫码登录(自动)", variant="primary")
+                t2_phone = gr.Textbox(label="手机号(国内 11 位)", placeholder="138xxxxxxxx")
+                with gr.Row():
+                    t2_start = gr.Button("🚀 启动登录", variant="primary")
+                    t2_cancel = gr.Button("🛑 取消", variant="stop")
                 t2_stage = gr.Textbox(label="阶段", value="(未开始)", interactive=False)
             with gr.Column():
-                t2_qr_img = gr.Image(label="二维码(用智谱 App 扫)", height=240)
-                t2_qr_status = gr.Textbox(label="状态", value="", interactive=False, lines=6)
+                t2_captcha = gr.Image(label="腾讯点选验证(浏览器里点)", height=200)
+                t2_sms = gr.Textbox(label="短信 6 位码", max_lines=1,
+                                     placeholder="短信里的 6 位数字")
+                t2_submit = gr.Button("📨 提交短信码", variant="primary")
+                t2_status = gr.Textbox(label="状态", value="", interactive=False, lines=6)
 
-        def _do_qr_login(name, phone):
+        def _t2_start(name, phone):
+            if _t2_state["running"]:
+                return ("已在运行中", None, "⚠️ 已有一个登录任务在跑")
             if not name.strip():
-                return "(未开始)", None, "⚠️ 请先填写账号名"
+                return ("(未开始)", None, "⚠️ 账号名必填")
+            if not phone or len(phone) < 11:
+                return ("(未开始)", None, "⚠️ 手机号格式错(11 位)")
 
             from Tools.credential_backend import CredentialBackend
             backend = CredentialBackend(ask=False)
             progress_log: list[str] = []
+            captcha_b64_holder: list[str] = [""]
 
             def _cb(p):
                 progress_log.append(f"📡 {p.stage}: {p.message}")
+                if p.captcha_b64:
+                    captcha_b64_holder[0] = p.captcha_b64
+
+            import asyncio as _aio
+            try:
+                loop = _aio.get_event_loop()
+                if loop.is_closed():
+                    raise RuntimeError
+            except RuntimeError:
+                loop = _aio.new_event_loop()
+                _aio.set_event_loop(loop)
+
+            sms_future = loop.create_future()
+            async def _wrap_provider() -> str:
+                return await sms_future
 
             async def _go():
-                return await backend.auto_login_and_save(
+                return await backend.phone_login_and_save(
                     account_name=name,
                     phone=phone,
+                    sms_code_provider=_wrap_provider,
                     timeout_sec=180,
                     progress_callback=_cb,
                 )
+            task = loop.create_task(_go())
+            _t2_state["task"] = task
+            _t2_state["sms_future"] = sms_future
+            _t2_state["running"] = True
 
-            result = _run(_go())
-            qr_b64 = result.get("qrcode_b64", "") or ""
-            qr_img = None
-            if qr_b64:
+            import time
+            for _ in range(20):
+                time.sleep(0.3)
+                if captcha_b64_holder[0] or task.done():
+                    break
+
+            img = None
+            if captcha_b64_holder[0]:
                 import base64, io
                 try:
                     from PIL import Image
-                    qr_img = Image.open(io.BytesIO(base64.b64decode(qr_b64)))
+                    img = Image.open(io.BytesIO(base64.b64decode(captcha_b64_holder[0])))
                 except Exception:
-                    # 退一步:把 raw base64 字符串也喂不进去,直接给 None 让 gradio 显示占位
-                    qr_img = None
-            summary = "\n".join(progress_log[-10:]) if progress_log else ""
-            if result.get("success"):
-                summary += (
-                    f"\n✅ 已加密保存 → {result.get('store_path', '.secrets.enc')}\n"
-                    f"👤 user_id: {result.get('user_id', '')}"
-                )
-            else:
-                summary += f"\n❌ {result.get('message', '失败')}"
-            return progress_log[-1] if progress_log else "done", qr_img, summary
+                    img = None
+            summary = "\n".join(progress_log[-8:]) if progress_log else "启动中..."
+            return (progress_log[-1] if progress_log else "init", img, summary)
 
-        t2_qr_btn.click(fn=_do_qr_login, inputs=[t2_name, t2_phone], outputs=[t2_stage, t2_qr_img, t2_qr_status])
+        def _t2_submit_sms(code):
+            fut = _t2_state.get("sms_future")
+            if fut is None or fut.done():
+                return "⚠️ 没有等待中的登录任务(可能已超时/取消)"
+            if not code or len(code.strip()) < 4:
+                return "⚠️ 短信码至少 4 位"
+            fut.get_loop().call_soon_threadsafe(fut.set_result, code.strip())
+            return "✅ 短信码已提交,等待登录..."
+
+        def _t2_cancel():
+            fut = _t2_state.get("sms_future")
+            task = _t2_state.get("task")
+            if fut is not None and not fut.done():
+                fut.get_loop().call_soon_threadsafe(fut.set_result, "")
+            if task is not None and not task.done():
+                task.cancel()
+            _t2_state["running"] = False
+            return "已取消"
+
+        def _t2_poll():
+            task = _t2_state.get("task")
+            if task is None:
+                return ("(未开始)", "未启动登录")
+            if task.done():
+                try:
+                    r = task.result()
+                except Exception as e:
+                    _t2_state["running"] = False
+                    return ("error", f"异常: {e}")
+                _t2_state["running"] = False
+                if r.get("success"):
+                    return ("done", f"✅ 登录成功 → {r.get('message', '')}\nuser_id: {r.get('user_id', '')}")
+                return ("failed", f"❌ {r.get('message', r.get('stage', 'failed'))}")
+            return ("waiting", "流程进行中... 等待:浏览器点汉字 + 面板填 6 位码")
+
+        t2_start.click(fn=_t2_start, inputs=[t2_name, t2_phone],
+                       outputs=[t2_stage, t2_captcha, t2_status])
+        t2_submit.click(fn=_t2_submit_sms, inputs=[t2_sms], outputs=[t2_status])
+        t2_cancel.click(fn=_t2_cancel, outputs=[t2_status])
+        _t2_timer = gr.Timer(value=3)
+        _t2_timer.tick(fn=_t2_poll, outputs=[t2_stage, t2_status])
+
 
     # Tab 3: 已保存账号
     with gr.Tab("已保存账号"):

@@ -299,6 +299,127 @@ class CredentialBackend:
             progress_callback=progress_callback,
         )
 
+    # ----------------------------------------------------------- 手机号+短信码登录
+
+    async def start_phone_login(
+        self,
+        account_name: str,
+        phone: str,
+        *,
+        timeout_sec: int = 180,
+        progress_callback=None,
+    ) -> dict[str, Any]:
+        """启动手机号登录流程,返回 sms_provider hook 和 captcha_b64。
+
+        设计:gradio 调这个 → 拿到 sms_code_provider(closure)→ 在面板把
+        "输入 6 位短信码"框的 value 变化 hook 进 provider; Playwright 流程在
+        后台跑,sms_code_provider 第一次被 await 时挂起,等用户填码后被
+        推进 → 流程继续。
+
+        Returns:
+            {
+              "sms_provider": async () -> str,  把这个传给 auto_login.phone_login_capture
+              "task": asyncio.Task,  任务句柄
+            }
+        """
+        import asyncio
+        from Tools.auto_login import phone_login_capture as _phone_login
+
+        loop = asyncio.get_event_loop()
+        sms_future: asyncio.Future = loop.create_future()
+
+        async def sms_provider() -> str:
+            return await sms_future
+
+        async def _runner():
+            return await _phone_login(
+                account_name=account_name,
+                phone=phone,
+                sms_code_provider=sms_provider,
+                captcha_done_event=asyncio.Event(),  # 占位,phone_login_capture 内部用 _wait_captcha_passed 轮询
+                timeout_sec=timeout_sec,
+                headless=False,
+                progress_callback=progress_callback,
+            )
+
+        task = loop.create_task(_runner())
+        return {"task": task, "sms_future": sms_future, "sms_provider": sms_provider}
+
+    async def submit_sms_code(self, sms_future, code: str) -> None:
+        """面板"输入短信码"触发:把 6 位码推给 phone_login_capture。"""
+        if sms_future is not None and not sms_future.done():
+            sms_future.set_result(code)
+
+    async def cancel_phone_login(self, sms_future) -> None:
+        if sms_future is not None and not sms_future.done():
+            sms_future.set_result("")
+
+    async def phone_login_and_save(
+        self,
+        account_name: str,
+        phone: str,
+        sms_code_provider,
+        *,
+        timeout_sec: int = 180,
+        progress_callback=None,
+    ) -> dict[str, Any]:
+        """手机号+短信码 完整登录 + 验证 + 加密落盘。
+
+        sms_code_provider: async () -> str 由面板提供(用户输入 6 位码时 set_result)。
+        """
+        if not account_name.strip():
+            return {"stage": "error", "success": False, "message": "account name required",
+                    "captcha_b64": "", "user_id": ""}
+        if not phone or len(phone) < 11:
+            return {"stage": "error", "success": False, "message": "phone invalid",
+                    "captcha_b64": "", "user_id": ""}
+
+        from Tools.auto_login import phone_login_capture as _phone_login
+        import asyncio
+
+        capture = await _phone_login(
+            account_name=account_name,
+            phone=phone,
+            sms_code_provider=sms_code_provider,
+            captcha_done_event=asyncio.Event(),
+            timeout_sec=timeout_sec,
+            headless=False,
+            progress_callback=progress_callback,
+        )
+        if not capture.get("success"):
+            return {
+                "stage": capture.get("stage", "error"),
+                "success": False,
+                "message": capture.get("message", "phone login failed"),
+                "captcha_b64": capture.get("captcha_b64", ""),
+                "user_id": "",
+            }
+        # 阶段 2: 验证
+        verify = await self._verify_token(
+            token=capture["token"], cookie=capture["cookie"]
+        )
+        if not verify["valid"]:
+            return {"stage": "error", "success": False,
+                    "message": f"phone login ok but token invalid: {verify['error']}",
+                    "captcha_b64": capture.get("captcha_b64", ""), "user_id": ""}
+        # 阶段 3: 落盘
+        store = self._get_store(write=True)
+        store.upsert_account({
+            "name": account_name.strip(),
+            "phone": phone.strip(),
+            "token": capture["token"],
+            "cookie": capture["cookie"],
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "last_check": datetime.now(timezone.utc).isoformat(),
+            "user_id": verify["user_id"],
+        })
+        return {
+            "stage": "done", "success": True,
+            "message": f"phone login ok, [{account_name}] saved to {store.path if hasattr(store, 'path') else '.secrets.enc'}",
+            "captcha_b64": capture.get("captcha_b64", ""),
+            "user_id": verify["user_id"],
+        }
+
     async def auto_login_and_save(
         self,
         account_name: str,
