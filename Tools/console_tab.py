@@ -118,7 +118,7 @@ def build_console_tab() -> None:
         _cred_backend_phone = CredentialBackend()
 
         # 跨 handler 共享:task handle / sms_future
-        _phone_login_state: dict = {"task": None, "sms_future": None, "running": False, "provider": None}
+        _phone_login_state: dict = {"task": None, "sms_future": None, "running": False, "provider": None, "captcha_b64": "", "stage_text": ""}
 
         with gr.Row():
             with gr.Column(scale=1):
@@ -152,12 +152,14 @@ def build_console_tab() -> None:
             _phone_login_state["provider"] = None
 
             progress_log: list[str] = []
-            captcha_b64_holder: list[str] = [""]
 
             def _cb(p):
-                progress_log.append(f"📡 {p.stage}: {p.message}")
+                line = f"📡 {p.stage}: {p.message}"
+                progress_log.append(line)
+                _phone_login_state["stage_text"] = line
                 if p.captcha_b64:
-                    captcha_b64_holder[0] = p.captcha_b64
+                    # 跨 handler 共享,poll 会从这里取最新截图
+                    _phone_login_state["captcha_b64"] = p.captcha_b64
 
             import asyncio as _aio
             try:
@@ -187,19 +189,15 @@ def build_console_tab() -> None:
             _phone_login_state["sms_future"] = sms_future
             _phone_login_state["running"] = True
 
-            # 等几秒看 progress(不阻塞面板太久)
-            import time
-            for _ in range(20):
-                time.sleep(0.3)
-                if captcha_b64_holder[0] or task.done():
-                    break
-
+            # 不阻塞等截图。poll timer 每 1.5s 会从 _phone_login_state["captcha_b64"]
+            # 拉最新截图渲染到面板。后台 task 跑完或拿到 captcha 后,这里会更新。
             img = None
-            if captcha_b64_holder[0]:
+            existing_b64 = _phone_login_state.get("captcha_b64", "")
+            if existing_b64:
                 import base64, io
                 try:
                     from PIL import Image
-                    img = Image.open(io.BytesIO(base64.b64decode(captcha_b64_holder[0])))
+                    img = Image.open(io.BytesIO(base64.b64decode(existing_b64)))
                 except Exception:
                     img = None
             summary = "\n".join(progress_log[-8:]) if progress_log else "启动中..."
@@ -225,27 +223,39 @@ def build_console_tab() -> None:
             return "已取消"
 
         def _do_phone_poll():
+            """每 1.5s 跑一次,返回最新 stage/status/captcha image。"""
             task = _phone_login_state.get("task")
+            img = None
+            b64 = _phone_login_state.get("captcha_b64", "")
+            if b64:
+                import base64, io
+                try:
+                    from PIL import Image
+                    img = Image.open(io.BytesIO(base64.b64decode(b64)))
+                except Exception:
+                    img = None
             if task is None:
-                return ("(未开始)", "未启动登录")
+                return ("(未开始)", "未启动登录", img)
             if task.done():
                 try:
                     r = task.result()
                 except Exception as e:
                     _phone_login_state["running"] = False
-                    return ("error", f"异常: {e}")
+                    return ("error", f"异常: {e}", img)
                 _phone_login_state["running"] = False
                 if r.get("success"):
-                    return ("done", f"✅ 登录成功 → {r.get('message', '')}\nuser_id: {r.get('user_id', '')}")
-                return ("failed", f"❌ {r.get('message', r.get('stage', 'failed'))}")
-            return ("waiting", "流程进行中... 等待:浏览器点汉字 + 面板填 6 位码")
+                    return ("done", f"✅ 登录成功 → {r.get('message', '')}\nuser_id: {r.get('user_id', '')}", img)
+                return ("failed", f"❌ {r.get('message', r.get('stage', 'failed'))}", img)
+            # 还在跑:显示 stage_text 或进度
+            stage = _phone_login_state.get("stage_text", "waiting")
+            return (stage, f"流程进行中...\nstage={stage}\n等待:浏览器点汉字 + 面板填 6 位码", img)
 
         phone_start.click(fn=_do_phone_start, inputs=[phone_name, phone_num],
                           outputs=[phone_stage, phone_captcha, phone_status])
         phone_submit.click(fn=_do_phone_submit_sms, inputs=[phone_sms], outputs=[phone_status])
         phone_cancel.click(fn=_do_phone_cancel, outputs=[phone_status])
-        phone_poll_timer = gr.Timer(value=3)
-        phone_poll_timer.tick(fn=_do_phone_poll, outputs=[phone_stage, phone_status])
+        phone_poll_timer = gr.Timer(value=1.5)
+        phone_poll_timer.tick(fn=_do_phone_poll, outputs=[phone_stage, phone_status, phone_captcha])
 
         # ── 子折叠:已保存账号列表(登录成功后自动刷新到这里) ──
         with gr.Accordion("📋 已保存账号(token/cookie 不显示)", open=False):
