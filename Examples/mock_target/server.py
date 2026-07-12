@@ -21,8 +21,8 @@ r"""智谱 GLM Coding 本地 mock target (零依赖 + 零风控)。
     POST /api/biz/codeinterpreter/bizOrderLimit/check               check 校验 bizId
     POST /api/biz/codeinterpreter/bizOrderLimit/create              创建订单(不真下单)
     POST /api/biz/user/sms/login                                    验证码登录(任何 code 都通)
-    GET  /api/biz/code/smsCode/{phone}                               第一阶段:发短信验证码(任意 phone 都通)
-    GET  /api/biz/code/checkSmsCode/{code}                           第二阶段:校验短信码(任意 4-8 位数字都通;0000/9999 失败)
+    GET  /api/biz/code/smsCode/{phone}                               [DEPRECATED] 第一阶段:发短信验证码(任意 phone 都通,仅供离线脚本)
+    GET  /api/biz/code/checkSmsCode/{code}                           [DEPRECATED] 第二阶段:校验短信码(任意 4-8 位数字都通;0000/9999 失败,仅供离线脚本)
     GET  /test                                                      永远 401,用于测试错误处理
 
 为什么 stdlib:
@@ -113,8 +113,9 @@ class MockHandler(BaseHTTPRequestHandler):
         elif path == "/api/biz/codeinterpreter/priceAndCurrencyNew":
             self._json(200, MOCK_PRICING)
         elif path.startswith("/api/biz/code/smsCode/"):
-            # 第一阶段:发送验证码。任意 phone 都返回 sent=True,
-            # 真实环境 magipack 会校验手机号归属地,这里不模拟。
+            # [DEPRECATED] 第一阶段:发送验证码。智谱不再开放此 API,
+            # 仅供 Examples/mock_target 下的离线脚本演练使用。
+            # 真实环境会返回 404 + 被 magipack 风控拦截。
             phone = path.rsplit("/", 1)[-1]
             self._json(200, {
                 "phone":    phone,
@@ -122,7 +123,9 @@ class MockHandler(BaseHTTPRequestHandler):
                 "expireIn": 300,
             })
         elif path.startswith("/api/biz/code/checkSmsCode/"):
-            # 第二阶段:校验验证码。
+            # [DEPRECATED] 第二阶段:校验验证码。智谱不再开放此 API,
+            # 仅供离线脚本演练。
+
             code = path.rsplit("/", 1)[-1]
             if code in MOCK_SMS_FAIL_CODES:
                 self._json(200, {
