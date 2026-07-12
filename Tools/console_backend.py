@@ -394,9 +394,9 @@ def run_console_job(job: ConsoleJob) -> None:
         from Core.Zhipu.http_client import ApiClient
         client = ApiClient(
             cfg,
-            token=acc.get("token") or "",
+            token=acc.token or "",
             cookie="",
-            account_name=acc["name"],
+            account_name=acc.name,
         )
         from Core.Zhipu.session import Session
         sess = Session(account=acc, client=client, user_id="")

@@ -1,0 +1,22 @@
+{
+  "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "platform": "Linux x86_64",
+  "vendor": "Google Inc.",
+  "locale": "en-US",
+  "timezone": "America/New_York",
+  "screen_resolution": [
+    1920,
+    1080
+  ],
+  "color_depth": 24,
+  "hardware_concurrency": 8,
+  "device_memory": 8,
+  "canvas_seed": 282421825,
+  "webgl_vendor": "Intel Inc.",
+  "webgl_renderer": "Intel Iris OpenGL Engine",
+  "audio_seed": 683200197,
+  "plugins": [],
+  "fonts": [],
+  "webdriver": false,
+  "headless_sanitize": true
+}
