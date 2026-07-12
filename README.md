@@ -530,28 +530,29 @@ python -m Core.Zhipu grab -c config.yaml
 
 **风险提示**: 智谱 GLM Coding 是 Web 抢购场景,需要从浏览器 F12 抓 `Authorization` 头(Bearer token) 或完整 Cookie 才能登录。`createBankOrder` 的字段在补货后可能变化,GlmCodingGrabber 已做多别名兜底但仍需实测。
 
-### 凭证管理面板(Gradio)
+### 智谱抢购控制台（Gradio）
 
-手动抓 token 是这流程里最卡的步骤,所以我们写了一个本地 web 面板:
+本地 Gradio 面板统一入口:
 
 ```bash
-# 1. 装 gradio(已加进 requirements.txt)
-.venv-fix/bin/pip install -r requirements.txt
+# 1. 装 gradio（已加进 requirements.txt）
+pip install -r requirements.txt
 
-# 2. 设置加密口令(必须,用于 Fernet 加密 .secrets.enc)
+# 2. 设置加密口令（必须，用于 Fernet 加密 .secrets.enc）
 export GLM_GRABBER_KEY="your-passphrase"
 
-# 3. 启动面板
-.venv-fix/bin/python Tools/credential_panel.py
+# 3. 启动面板（4 个 Tab：Console / 凭证 / Profile / Proxy）
+python Tools/webauto_web.py
 # 浏览器打开 http://localhost:7860
 ```
 
-面板提供三个 Tab:
-- **粘贴 Token / Cookie** —— 把 F12 抓的 Authorization 头 / Cookie 粘进来,点"验证并保存"自动 check + Fernet 加密保存
-- **短信登录** —— 用手机号 + 短信码登录(适合 token 过期时刷新)
-- **已保存账号管理** —— 列表 + 删除
+4 个 Tab 说明:
+- **Console** —— 完整版抢购控制台，支持多账号 + 套餐 + 倒计时 + 开始抢
+- **凭证** —— 粘贴 Token / Cookie，验证并保存；或手机号 + 短信码登录；已保存账号列表
+- **Profile** —— Profile 列表 + 创建 / 编辑 / 删除 + 指纹预览
+- **Proxy** —— 代理列表 + 增删改 + 批量导入 + 健康检查
 
-业务后端在 `Tools/credential_backend.py`,UI 在 `Tools/credential_panel.py`,都跟 `Core/Zhipu` 共享加密库 `.secrets.enc`。
+业务后端在 `Tools/credential_backend.py`（凭证）、`Tools/profile_backend.py`（Profile）、`Tools/proxy_backend.py`（Proxy），都跟 `Core/Zhipu` 共享加密库 `.secrets.enc`。
 
 ### 设计借鉴(来自 GitHub 优秀项目)
 
