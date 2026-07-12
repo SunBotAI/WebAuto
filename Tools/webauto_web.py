@@ -25,6 +25,7 @@ sys.path.insert(0, str(ROOT))
 
 from Tools.profile_tab import build_profile_tab
 from Tools.proxy_panel_tab import build_proxy_tab
+from Tools.console_tab import build_console_tab
 
 
 # ─── 凭证 Tab（inline，避免顶层 import 链冲突）─────────────
@@ -227,66 +228,6 @@ def _build_credential_tab():
         )
 
 
-# ─── Console Tab（简化入口说明）───────────────────────────────
-
-def _build_console_tab():
-    """构造 Console Tab（简化版，保留核心功能）"""
-    import gradio as gr
-
-    gr.Markdown("### ⚡ WebAuto 抢购控制台")
-
-    gr.Markdown(
-        "智谱 GLM Coding 抢购控制台完整版请访问：\n"
-        "```\npython Tools/console.py\n```\n"
-        "此 Tab 提供快捷入口和状态总览。"
-    )
-
-    with gr.Row():
-        with gr.Column():
-            gr.Markdown("""
-**功能说明：**
-
-- **Tab1 Console**：完整的抢购控制台，支持多账号、时间配置、实时状态
-- **Tab2 智谱凭证**：管理 GLM 账号 token/cookie、短信登录
-- **Tab3 Profile**：管理浏览器指纹账号（创建/编辑/删除/池化）
-- **Tab4 Proxy**：管理代理池（健康追踪/批量导入）
-
-**端口说明：**
-| 端口 | 服务 |
-|------|------|
-| 7860 | 本面板（统一入口） |
-| 7861 | console.py（完整控制台） |
-| 7862 | profile_panel.py（单独启动）|
-| 7863 | proxy_panel.py（单独启动）|
-
-**Profile 池化流程：**
-
-```
-创建 Profile
-    ↓
-acquire 借出（自动选或指定 ID）
-    ↓
-浏览器使用 Profile
-    ↓
-release 归还（可设 cooldown 防风控）
-```
-""")
-        with gr.Column():
-            gr.Markdown("""
-**启动命令：**
-
-```bash
-# 统一面板（4 in 1）
-python Tools/webauto_web.py
-
-# 单独启动
-python -m Tools.profile_panel  # 7862
-python -m Tools.proxy_panel   # 7863
-python Tools/console.py      # 7861
-```
-""")
-
-
 # ─── 主程序 ─────────────────────────────────────────────────────
 
 def _build_ui():
@@ -296,9 +237,9 @@ def _build_ui():
         gr.Markdown("# 🚀 WebAuto 统一管理面板")
         gr.Markdown("智谱抢购 · 凭证管理 · Profile 池 · Proxy 池，四合一入口")
 
-        # Tab 1: Console
+        # Tab 1: Console（完整版来自 console_tab.py）
         with gr.Tab("⚡ Console"):
-            _build_console_tab()
+            build_console_tab()
 
         # Tab 2: 智谱凭证
         with gr.Tab("🔐 智谱凭证"):
