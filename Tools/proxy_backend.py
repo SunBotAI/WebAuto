@@ -304,6 +304,23 @@ def reset_proxy_failures(profile_id: str, url: str) -> bool:
         return False
 
 
+def reset_profile_failures(profile_id: str) -> bool:
+    """
+    重置 Profile 下所有代理的失败计数。
+
+    Returns:
+        True 成功，False profile 未注册
+    """
+    rotator = _get_rotator()
+    with rotator._lock:
+        pool = rotator._proxy_pools.get(profile_id)
+        if pool is None:
+            return False
+        for entry in pool:
+            entry.consecutive_failures = 0
+        return True
+
+
 # ─── T-097 代理池策略可视化 ───────────────────────────────────────────────
 
 # URL TLD → 国家/地区映射（简单版，覆盖常见电商/社交）

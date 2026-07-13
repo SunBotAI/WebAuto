@@ -173,10 +173,23 @@ class PoolSetStrategyInput(BaseModel):
     @field_validator("strategy")
     @classmethod
     def valid_strategy(cls, v: str) -> str:
-        valid = {"random", "round-robin", "least-used", "priority"}
-        if v not in valid:
-            raise ValueError(f"strategy must be one of: {', '.join(sorted(valid))}")
-        return v
+        # 接受 MCP 层友好的 human-readable 名称，映射到 backend AcquireStrategy 值
+        _alias_map = {
+            "random": "random",
+            "round-robin": "round_robin",
+            "round_robin": "round_robin",
+            "least-used": "least_used",
+            "least_used": "least_used",
+            "sticky-by-tag": "sticky_by_tag",
+            "sticky_by_tag": "sticky_by_tag",
+            "health-based": "health_based",
+            "health_based": "health_based",
+        }
+        normalized = _alias_map.get(v, v)
+        valid_backends = {"random", "round_robin", "least_used", "sticky_by_tag", "health_based"}
+        if normalized not in valid_backends:
+            raise ValueError(f"strategy must be one of: {', '.join(sorted(valid_backends))}")
+        return normalized
 
 
 class PoolSetMaxConcurrentInput(BaseModel):
@@ -258,41 +271,63 @@ from Tools.proxy_backend import (
     register_proxies, unregister_proxies, list_proxies,
     get_proxy_health, list_all_health, enable_proxy, disable_proxy,
     batch_enable, batch_disable, mark_proxy_dead, reset_proxy_failures,
-    get_rotator_status,
+    reset_profile_failures, get_rotator_status,
 )
 
 
 def _profile_summary(p: Any) -> Dict[str, Any]:
+    last_used = p.last_used
+    if last_used is not None:
+        from datetime import datetime
+        last_used = datetime.fromtimestamp(last_used).isoformat()
     return {
         "id": p.id, "name": p.name,
         "status": p.status.value if hasattr(p.status, "value") else str(p.status),
         "tags": p.tags or [],
-        "last_used": p.last_used.isoformat() if p.last_used else None,
-        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "last_used": last_used,
     }
+
+
+def _cooldown_iso(v) -> Optional[str]:
+    """Convert a cooldown_until value (datetime or float or None) to ISO string."""
+    if v is None:
+        return None
+    from datetime import datetime
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, float):
+        return datetime.fromtimestamp(v).isoformat()
+    return str(v)
 
 
 def _profile_detail(p: Any) -> Dict[str, Any]:
     fp = p.fingerprint
     net = p.network
+    # viewport: FingerprintConfig has screen_resolution (w, h) tuple, not viewport.width/height
+    screen_res = getattr(fp, 'screen_resolution', None) or (None, None)
+    viewport = {"width": screen_res[0], "height": screen_res[1]} if screen_res[0] else None
     return {
         "id": p.id, "name": p.name,
         "status": p.status.value if hasattr(p.status, "value") else str(p.status),
         "tags": p.tags or [],
         "fingerprint": {
-            "platform": fp.platform, "user_agent": fp.user_agent,
-            "viewport": {"width": fp.viewport.width, "height": fp.viewport.height},
-            "timezone": fp.timezone, "locale": fp.locale, "ua_mask_type": fp.ua_mask_type,
+            "platform": getattr(fp, 'platform', None),
+            "user_agent": getattr(fp, 'user_agent', None),
+            "viewport": viewport,
+            "timezone": getattr(fp, 'timezone', None),
+            "locale": getattr(fp, 'locale', None),
         },
         "network": {
-            "proxy_url": net.proxy_url, "proxy_username": net.proxy_username,
-            "proxy_password": "***", "proxy_type": net.proxy_type,
-            "geoip_country": net.geoip_country, "dns_over_https": net.dns_over_https,
-            "proxy_pool": net.proxy_pool or [],
+            "proxy_url": getattr(net, 'proxy_url', None),
+            "proxy_username": getattr(net, 'proxy_username', None),
+            "proxy_password": "***",
+            "proxy_type": getattr(net, 'proxy_type', None),
+            "geoip_country": getattr(net, 'geoip_country', None),
+            "dns_over_https": getattr(net, 'dns_over_https', None),
+            "proxy_pool": getattr(net, 'proxy_pool', None) or [],
         },
-        "cooldown_until": p.cooldown_until.isoformat() if p.cooldown_until else None,
-        "last_used": p.last_used.isoformat() if p.last_used else None,
-        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "cooldown_until": _cooldown_iso(p.cooldown_until),
+        "last_used": _cooldown_iso(p.last_used),
         "storage_dir": str(p.storage_dir) if p.storage_dir else None,
     }
 
@@ -355,13 +390,17 @@ def profile_create(
             "fingerprint": fingerprint, "network": network,
         })
     try:
-        p = create_profile({
+        data = {
             "id": validated.profile_id,
             "name": validated.name,
-            "tags": validated.tags,
-            "fingerprint": validated.fingerprint.model_dump() if validated.fingerprint else None,
-            "network": validated.network.model_dump() if validated.network else None,
-        })
+        }
+        if validated.tags is not None:
+            data["tags"] = validated.tags
+        if validated.fingerprint is not None:
+            data["fingerprint"] = validated.fingerprint.model_dump()
+        if validated.network is not None:
+            data["network"] = validated.network.model_dump()
+        p = create_profile(data)
         return ok({
             "profile_id": p.id, "created": True,
             "storage_dir": str(p.storage_dir) if p.storage_dir else "",
@@ -395,13 +434,17 @@ def profile_update(
             "fingerprint": fingerprint, "network": network, "status": status,
         })
     try:
-        data = {k: v for k, v in {
-            "name": validated.name,
-            "tags": validated.tags,
-            "fingerprint": validated.fingerprint.model_dump() if validated.fingerprint else None,
-            "network": validated.network.model_dump() if validated.network else None,
-            "status": validated.status,
-        }.items() if v is not None}
+        data = {"name": validated.name}
+        if validated.tags is not None:
+            data["tags"] = validated.tags
+        if validated.fingerprint is not None:
+            data["fingerprint"] = validated.fingerprint.model_dump()
+        if validated.network is not None:
+            data["network"] = validated.network.model_dump()
+        if validated.status is not None:
+            data["status"] = validated.status
+        if not data:
+            return err("Nothing to update", {"profile_id": validated.profile_id})
         updated = update_profile(validated.profile_id, data)
         if updated is None:
             return err(f"Profile '{validated.profile_id}' not found", {"profile_id": validated.profile_id})
@@ -410,14 +453,17 @@ def profile_update(
         return err(_fmt_exc(e), {"profile_id": profile_id})
 
 
-@mcp.tool(name="profile_delete", description="删除 Profile（可选擦除 storage）")
-def profile_delete(profile_id: str, wipe_storage: bool = True) -> Dict[str, Any]:
-    """T-085 输入校验 + T-086 三元组"""
+@mcp.tool(name="profile_delete", description="删除 Profile（物理删除目录）")
+def profile_delete(profile_id: str) -> Dict[str, Any]:
+    """T-085 输入校验 + T-086 三元组
+
+    Note: backend delete_profile(profile_id) 只接受 profile_id，wipe_storage 参数已移除。
+    """
     if not profile_id or not isinstance(profile_id, str):
         return err("profile_id is required and must be a non-empty string", {"profile_id": profile_id})
     try:
-        deleted = delete_profile(profile_id, wipe_storage=wipe_storage)
-        return ok({"profile_id": profile_id, "deleted": deleted, "wiped": wipe_storage})
+        deleted = delete_profile(profile_id)
+        return ok({"profile_id": profile_id, "deleted": deleted})
     except Exception as e:
         return err(_fmt_exc(e), {"profile_id": profile_id})
 
@@ -439,35 +485,39 @@ def profile_warmup(profile_id: str) -> Dict[str, Any]:
         return err(_fmt_exc(e), {"profile_id": profile_id})
 
 
-@mcp.tool(name="profile_export", description="导出 Profile 为 .zip 包")
-def profile_export(profile_id: str, target_path: str) -> Dict[str, Any]:
-    """T-085 输入校验 + T-086 三元组"""
+@mcp.tool(name="profile_export", description="导出 Profile 为 JSON dict")
+def profile_export(profile_id: str) -> Dict[str, Any]:
+    """T-085 输入校验 + T-086 三元组
+
+    Note: backend export_profile() 只返回 dict，不写文件。target_path 参数已移除。
+    """
     if not profile_id or not isinstance(profile_id, str):
         return err("profile_id is required and must be a non-empty string", {"profile_id": profile_id})
-    if not target_path or not isinstance(target_path, str):
-        return err("target_path is required and must be a non-empty string", {"target_path": target_path})
     try:
-        result = export_profile(profile_id, target_path)
+        result = export_profile(profile_id)
         if result is None:
             return err(f"Profile '{profile_id}' not found", {"profile_id": profile_id})
         return ok({
             "profile_id": profile_id, "exported": True,
-            "path": result.get("path", target_path),
-            "size_bytes": result.get("size_bytes", 0),
+            "data": result,  # dict for JSON serialization
         })
     except Exception as e:
-        return err(_fmt_exc(e), {"profile_id": profile_id, "target_path": target_path})
+        return err(_fmt_exc(e), {"profile_id": profile_id})
 
 
 @mcp.tool(name="profile_import", description="从 .zip 包导入 Profile")
 def profile_import(source_path: str, new_id: Optional[str] = None) -> Dict[str, Any]:
-    """T-085 输入校验 + T-086 三元组"""
+    """T-085 输入校验 + T-086 三元组
+
+    Note: backend store.import_(source_zip, new_id) 接受 zip 压缩包路径。
+    """
+    from pathlib import Path
     if not source_path or not isinstance(source_path, str):
         return err("source_path is required and must be a non-empty string", {"source_path": source_path})
     if new_id is not None and not isinstance(new_id, str):
         return err("new_id must be a string if provided", {"new_id": new_id})
     try:
-        p = import_profile({"source_path": source_path, "new_id": new_id})
+        p = _get_store().import_(Path(source_path), new_id)
         return ok({
             "profile_id": p.id, "imported": True,
             "storage_dir": str(p.storage_dir) if p.storage_dir else "",
@@ -480,22 +530,26 @@ def profile_import(source_path: str, new_id: Optional[str] = None) -> Dict[str, 
 # Proxy 组（8 tools）
 # ════════════════════════════════════════════════════════════════════════════
 
-@mcp.tool(name="proxy_list", description="列出所有代理条目（不含健康详情）")
-def proxy_list() -> Dict[str, Any]:
-    """T-086 三元组"""
+@mcp.tool(name="proxy_list", description="列出指定 Profile 的代理条目")
+def proxy_list(profile_id: Optional[str] = None) -> Dict[str, Any]:
+    """T-086 三元组
+
+    Note: backend list_proxies(profile_id) requires profile_id。
+    """
+    profile_id = profile_id or "default"
     try:
-        proxies = list_proxies()
+        proxies = list_proxies(profile_id)
         return ok({
             "proxies": [
                 {
-                    "id": px["id"], "url": px["url"],
-                    "proxy_type": px.get("proxy_type", "http"),
-                    "region": px.get("region"), "tags": px.get("tags", []),
-                    "enabled": px.get("enabled", True), "notes": px.get("notes", ""),
+                    "url": px["url"],
+                    "state": px.get("state", "unknown"),
+                    "available": px.get("available", False),
                 }
                 for px in proxies
             ],
             "total": len(proxies),
+            "profile_id": profile_id,
         })
     except Exception as e:
         return err(_fmt_exc(e))
@@ -539,16 +593,11 @@ def proxy_create(
             "username": username, "region": region, "tags": tags,
         })
     try:
-        result = register_proxies([{
-            "id": validated.proxy_id, "url": validated.url,
-            "proxy_type": validated.proxy_type,
-            "username": validated.username, "password": validated.password,
-            "region": validated.region, "tags": validated.tags, "notes": validated.notes,
-        }])
-        created = result.get(validated.url, [None])[0]
-        if created is None:
-            return err(f"Failed to register proxy: {validated.url}", {"url": validated.url})
-        return ok({"proxy_id": created, "created": True})
+        # backend register_proxies(profile_id, proxy_urls) 签名
+        # proxy_id 对应 profile_id，url 对应第一个 proxy_urls 元素
+        profile_id = validated.proxy_id or "default"
+        created = register_proxies(profile_id, [validated.url])
+        return ok({"proxy_id": validated.url, "created": created})
     except Exception as e:
         return err(_fmt_exc(e), {"url": url})
 
@@ -565,16 +614,20 @@ def proxy_update(proxy_id: str, **kwargs: Any) -> Dict[str, Any]:
     )
 
 
-@mcp.tool(name="proxy_delete", description="从全局池删除代理")
-def proxy_delete(proxy_id: str) -> Dict[str, Any]:
-    """T-085 输入校验 + T-086 三元组"""
-    if not proxy_id or not isinstance(proxy_id, str):
-        return err("proxy_id is required and must be a non-empty string", {"proxy_id": proxy_id})
+@mcp.tool(name="proxy_delete", description="注销 Profile 的所有代理")
+def proxy_delete(profile_id: str) -> Dict[str, Any]:
+    """T-085 输入校验 + T-086 三元组
+
+    Note: backend unregister_proxies(profile_id) 注销整个 profile 的代理池。
+    proxy_id 参数名对应 profile_id。
+    """
+    if not profile_id or not isinstance(profile_id, str):
+        return err("profile_id is required and must be a non-empty string", {"profile_id": profile_id})
     try:
-        removed = unregister_proxies([proxy_id])
-        return ok({"proxy_id": proxy_id, "deleted": proxy_id in removed})
+        removed = unregister_proxies(profile_id)
+        return ok({"profile_id": profile_id, "deleted": removed})
     except Exception as e:
-        return err(_fmt_exc(e), {"proxy_id": proxy_id})
+        return err(_fmt_exc(e), {"profile_id": profile_id})
 
 
 @mcp.tool(name="proxy_health_check", description="对代理发起健康检查")
@@ -627,34 +680,32 @@ def proxy_bulk_import(
         return err(f"File not found: {validated.source_path}", {"source_path": validated.source_path})
     except PermissionError:
         return err(f"Permission denied: {validated.source_path}", {"source_path": validated.source_path})
+
+    profile_id = "bulk_import"
     if validated.format == "csv":
         import csv
-        rows = []
+        proxy_urls = []
         reader = csv.DictReader(lines)
         for row in reader:
-            rows.append({
-                "url": row.get("url"),
-                "proxy_type": row.get("proxy_type", "http"),
-                "username": row.get("username"),
-                "password": row.get("password"),
-                "region": row.get("region"),
-                "tags": row.get("tags", "").split(",") if row.get("tags") else None,
-            })
+            if row.get("url"):
+                proxy_urls.append(row["url"])
     else:
-        rows = [{"url": ln} for ln in lines]
-    result = register_proxies(rows)
-    all_ids: List[str] = []
-    for ids in result.values():
-        all_ids.extend(ids)
+        proxy_urls = lines
+
+    registered = register_proxies(profile_id, proxy_urls)
     return ok({
-        "imported": len(all_ids), "skipped": len(lines) - len(all_ids),
-        "total": len(lines), "proxy_ids": all_ids,
+        "imported": len(proxy_urls) if registered else 0,
+        "total": len(proxy_urls),
+        "profile_id": profile_id,
     })
 
 
-@mcp.tool(name="proxy_reset_health", description="重置代理健康状态")
+@mcp.tool(name="proxy_reset_health", description="重置代理的健康状态")
 def proxy_reset_health(proxy_id: str, state: str = "active") -> Dict[str, Any]:
-    """T-085 输入校验 + T-086 三元组"""
+    """T-085 输入校验 + T-086 三元组
+
+    Note: backend reset_profile_failures(profile_id) 重置该 profile 下所有代理的失败计数。
+    """
     if not proxy_id or not isinstance(proxy_id, str):
         return err("proxy_id is required and must be a non-empty string", {"proxy_id": proxy_id})
     valid_states = {"active", "inactive", "unknown"}
@@ -664,11 +715,10 @@ def proxy_reset_health(proxy_id: str, state: str = "active") -> Dict[str, Any]:
         prev = get_proxy_health(proxy_id)
         if prev is None:
             return err(f"Proxy '{proxy_id}' not found", {"proxy_id": proxy_id})
-        previous_state = prev.get("health", {}).get("state", "unknown")
-        reset_proxy_failures(proxy_id)
+        reset_profile_failures(proxy_id)
         return ok({
             "proxy_id": proxy_id, "reset": True,
-            "previous_state": previous_state, "new_state": state,
+            "new_state": state,
         })
     except Exception as e:
         return err(_fmt_exc(e), {"proxy_id": proxy_id})
