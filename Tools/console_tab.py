@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 import sys
 import threading
@@ -17,6 +18,8 @@ from typing import Any
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+logger = logging.getLogger(__name__)
 
 from Tools.console_backend import (
     AccountProgress,
@@ -421,9 +424,12 @@ def build_console_tab() -> None:
 
     # ── 开始抢 ────────────────────────────────────────────────────
     def _start_job(state_val, dry_run):
+        logger.info(">>> _start_job called, dry_run=%s, accounts=%s", dry_run, [a.get('name') for a in state_val.accounts])
         if state_val.running:
+            logger.warning(">>> _start_job early return, reason=running")
             return state_val, gr.update(value="⚠ 已有抢单任务在运行,请先取消"), gr.update(value="-"), gr.update()
         if not state_val.accounts:
+            logger.warning(">>> _start_job early return, reason=no_accounts")
             return state_val, gr.update(value="⚠ 请先添加账号"), gr.update(value="-"), gr.update()
 
         stop_event = threading.Event()

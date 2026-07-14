@@ -26,7 +26,7 @@ from .profile import Profile, ProfileStatus
 class ProfileStore:
     """Profile 本地持久化（CRUD + import/export）"""
 
-    DEFAULT_DIR = Path.home() / ".cache" / "webauto" / "profiles"
+    DEFAULT_DIR = Path("data/profiles")
 
     def __init__(self, base_dir: Optional[Path] = None):
         self.base_dir = base_dir or self.DEFAULT_DIR
