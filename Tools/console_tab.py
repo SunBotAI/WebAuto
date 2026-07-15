@@ -37,6 +37,10 @@ from Tools.console_backend import (
     run_console_job,
 )
 
+# 模块级 bridge:跨函数调用同步账号列表(SMS 已下线但 add_account 仍依赖)
+# 也用于:Console 账号表从 credential_backend 读取后同步到这里
+_accounts_bridge: dict = {"state": None}
+
 
 def _run(coro):
     loop = asyncio.new_event_loop()
@@ -107,186 +111,85 @@ def build_console_tab() -> None:
         "所有参数在页面配置,不用改 yaml。点 [🔥 开始抢] 后等倒计时到点自动下单。"
     )
 
-    # ── 顶部:手机号+短信码登录(自动) ─────────────────────────────────
-    # 流程:
-    #   1) 填账号名+手机号,点"🚀 启动登录"
-    #   2) WebAuto 本地拉带指纹 Chromium(走 Core.AntiDetect)
-    #   3) 自动: 打开智谱首页 → 点"登录/注册" → 输手机号 → 点"获取验证码"
-    #   4) 腾讯防水墙按顺序点汉字验证弹窗出现 — **你用鼠标在浏览器里点**
-    #      (弹窗是浏览器层面的,面板只显示截图给你确认是哪张)
-    #   5) 验证通过 → 智谱下发短信到你手机 → **你在面板的 6 位码输入框里手输**
-    #   6) 自动: 提交登录 → 抽 token/cookie → 加密落 .secrets.enc
-    with gr.Accordion("📱 手机号登录(自动) - 指纹浏览器 + 腾讯点选 + 短信码", open=False):
-        from Tools.credential_backend import CredentialBackend
-        _cred_backend_phone = CredentialBackend()
+    # ── 登录入口(P0-1 修复:删掉重复的登录模块,改跳转按钮) ───────
+    gr.Markdown(
+        "---\n"
+        "📌 **凭证登录请移步 [🔐 智谱凭证] Tab**，登录成功后账号会自动同步到 Console。\n"
+        "不想手动切换？点下面按钮直达 👇"
+    )
+    jump_credential_btn = gr.Button("🔐 去智谱凭证 Tab 登录", variant="primary")
+    jump_credential_btn.click(
+        fn=None,
+        inputs=[],
+        outputs=[],
+        _js="""
+        () => {
+            // 找到 credential_tab 对应的 tab 按钮并点击它
+            const tabs = document.querySelectorAll('[id*="tab"]');
+            for (const tab of tabs) {
+                const label = tab.textContent || tab.innerText || '';
+                if (label.includes('智谱凭证') || label.includes('credential')) {
+                    tab.click();
+                    break;
+                }
+            }
+        }
+        """,
+    )
 
-        # 跨 handler 共享:task handle / sms_future
-        _phone_login_state: dict = {"task": None, "sms_future": None, "running": False, "provider": None, "captcha_b64": "", "stage_text": ""}
+    # ── 同步账号区(P0-2:Console 账号表从 credential_backend 读取) ───
+    gr.Markdown("---")
+    sync_accounts_btn = gr.Button("🔄 从凭证库同步账号到 Console")
+    sync_status = gr.Textbox(label="同步状态", value="", interactive=False)
 
-        with gr.Row():
-            with gr.Column(scale=1):
-                phone_name = gr.Textbox(label="账号名", placeholder="主账号")
-                phone_num = gr.Textbox(label="手机号(国内 11 位)", placeholder="138xxxxxxxx")
-                with gr.Row():
-                    phone_start = gr.Button("🚀 启动登录", variant="primary")
-                    phone_cancel = gr.Button("🛑 取消", variant="stop")
-                phone_stage = gr.Textbox(label="阶段", value="(未开始)", interactive=False)
-            with gr.Column(scale=1):
-                phone_captcha = gr.Image(label="腾讯点选验证(浏览器里点)", height=200)
-                phone_sms = gr.Textbox(label="短信 6 位码(收到后填这里)", max_lines=1,
-                                        placeholder="短信里的 6 位数字")
-                phone_submit = gr.Button("📨 提交短信码", variant="primary")
-                phone_status = gr.Textbox(label="状态", value="", interactive=False, lines=5)
+    def _load_credential_accounts():
+        """从 credential_backend 读取已保存账号,转成 Console 账号格式。"""
+        try:
+            from Tools.credential_backend import CredentialBackend
+            backend = CredentialBackend(ask=False)
+            accounts = _run(backend.list_accounts())
+            if not accounts:
+                return []
+            rows = []
+            for a in accounts:
+                rows.append({
+                    "name": a.get("name", ""),
+                    "phone": a.get("phone", "").replace("****", "xxxxxxxx"),  # 脱敏还原
+                    "enabled": True,
+                    "has_token": a.get("has_token", False),
+                })
+            return rows
+        except Exception:
+            return []
 
-        async def _do_phone_start(name, phone):
-            # 改成 async 后,gradio 在主 asyncio loop 上 await 这个 handler,
-            # 我们直接在主 loop 上 create_task 跑后台 Playwright 流程。
-            # 之前用 def + 手动 new loop 会导致 task 跑在错 loop,
-            # 共享 dict 写不进去、timer poll 永远拿不到。
-            existing_task = _phone_login_state.get("task")
-            if existing_task is not None and not existing_task.done():
-                return ("已在运行中", None,
-                        "⚠️ 已有一个登录任务在跑(可点取消或等结束)")
-            if not name.strip():
-                return ("(未开始)", None, "⚠️ 账号名必填")
-            if not phone or len(phone) < 11:
-                return ("(未开始)", None, "⚠️ 手机号格式错(11 位)")
-            # 清 stale 状态
-            _phone_login_state["task"] = None
-            _phone_login_state["sms_future"] = None
-            _phone_login_state["running"] = False
-            _phone_login_state["provider"] = None
+    def _sync_from_credential():
+        """从 credential_backend 同步到 Console state + 账号表。"""
+        try:
+            new_accounts = _load_credential_accounts()
+            if not new_accounts:
+                return "⚠️ 凭证库为空,请先去智谱凭证 Tab 添加账号"
+            # 同步到 bridge(让 timer tick 的 state 更新生效)
+            current = _accounts_bridge.get("state") or ConsoleState()
+            new_state = ConsoleState(**asdict(current))
+            new_state.accounts = new_accounts
+            _accounts_bridge["state"] = new_state
+            # 同时返回账号表更新
+            table_rows = [[a["name"], a["phone"], a["enabled"], a["has_token"]] for a in new_accounts]
+            return f"✅ 已同步 {len(new_accounts)} 个账号: {', '.join(a['name'] for a in new_accounts)}", table_rows
+        except Exception as e:
+            return f"❌ 同步失败: {e}", []
 
-            progress_log: list[str] = []
+    # 同步后同时刷新账号表
+    sync_accounts_btn.click(
+        fn=_sync_from_credential,
+        outputs=[sync_status, account_table],
+    )
 
-            def _cb(progress):
-                # 签名匹配 phone_login_capture.emit 传的 progress( dataclass)
-                line = f"📡 {progress.stage}: {progress.message}"
-                progress_log.append(line)
-                _phone_login_state["stage_text"] = line
-                if progress.captcha_b64:
-                    # 跨 handler 共享,poll 会从这里取最新截图
-                    _phone_login_state["captcha_b64"] = progress.captcha_b64
-
-            loop = asyncio.get_running_loop()  # gradio 主 loop
-            sms_future = loop.create_future()
-            async def _wrap_provider() -> str:
-                return await sms_future
-            _phone_login_state["provider"] = _wrap_provider
-
-            async def _go():
-                return await _cred_backend_phone.phone_login_and_save(
-                    account_name=name,
-                    phone=phone,
-                    sms_code_provider=_wrap_provider,
-                    timeout_sec=180,
-                    progress_callback=_cb,
-                )
-
-            task = loop.create_task(_go())
-            _phone_login_state["task"] = task
-            _phone_login_state["sms_future"] = sms_future
-            _phone_login_state["running"] = True
-
-            # 不阻塞等截图。poll timer 每 1.5s 会从 _phone_login_state["captcha_b64"]
-            # 拉最新截图渲染到面板。后台 task 跑完或拿到 captcha 后,这里会更新。
-            img = None
-            existing_b64 = _phone_login_state.get("captcha_b64", "")
-            if existing_b64:
-                import base64, io
-                try:
-                    from PIL import Image
-                    img = Image.open(io.BytesIO(base64.b64decode(existing_b64)))
-                except Exception:
-                    img = None
-            summary = "\n".join(progress_log[-8:]) if progress_log else "启动中..."
-            return (progress_log[-1] if progress_log else "init", img, summary)
-
-        def _do_phone_submit_sms(code):
-            fut = _phone_login_state.get("sms_future")
-            if fut is None or fut.done():
-                return "⚠️ 没有等待中的登录任务(可能已超时/取消)"
-            if not code or len(code.strip()) < 4:
-                return "⚠️ 短信码至少 4 位"
-            fut.get_loop().call_soon_threadsafe(fut.set_result, code.strip())
-            return "✅ 短信码已提交,等待登录..."
-
-        def _do_phone_cancel():
-            fut = _phone_login_state.get("sms_future")
-            task = _phone_login_state.get("task")
-            if fut is not None and not fut.done():
-                fut.get_loop().call_soon_threadsafe(fut.set_result, "")
-            if task is not None and not task.done():
-                task.cancel()
-            _phone_login_state["running"] = False
-            return "已取消"
-
-        def _do_phone_poll():
-            """每 1.5s 跑一次,返回最新 stage/status/captcha image。"""
-            task = _phone_login_state.get("task")
-            img = None
-            b64 = _phone_login_state.get("captcha_b64", "")
-            if b64:
-                import base64, io
-                try:
-                    from PIL import Image
-                    img = Image.open(io.BytesIO(base64.b64decode(b64)))
-                except Exception:
-                    img = None
-            if task is None:
-                return ("(未开始)", "未启动登录", img)
-            if task.done():
-                try:
-                    r = task.result()
-                except Exception as e:
-                    _phone_login_state["running"] = False
-                    return ("error", f"异常: {e}", img)
-                _phone_login_state["running"] = False
-                if r.get("success"):
-                    return ("done", f"✅ 登录成功 → {r.get('message', '')}\nuser_id: {r.get('user_id', '')}", img)
-                return ("failed", f"❌ {r.get('message', r.get('stage', 'failed'))}", img)
-            # 还在跑:显示 stage_text 或进度
-            stage = _phone_login_state.get("stage_text", "waiting")
-            return (stage, f"流程进行中...\nstage={stage}\n等待:浏览器点汉字 + 面板填 6 位码", img)
-
-        phone_start.click(fn=_do_phone_start, inputs=[phone_name, phone_num],
-                          outputs=[phone_stage, phone_captcha, phone_status])
-        phone_submit.click(fn=_do_phone_submit_sms, inputs=[phone_sms], outputs=[phone_status])
-        phone_cancel.click(fn=_do_phone_cancel, outputs=[phone_status])
-        phone_poll_timer = gr.Timer(value=1.5)
-        phone_poll_timer.tick(fn=_do_phone_poll, outputs=[phone_stage, phone_status, phone_captcha])
-
-        # ── 子折叠:已保存账号列表(登录成功后自动刷新到这里) ──
-        with gr.Accordion("📋 已保存账号(token/cookie 不显示)", open=False):
-            c_accounts_table = gr.Dataframe(
-                headers=["账号名", "手机号(脱敏)", "user_id", "保存时间", "有 token", "有 cookie"],
-                datatype=["str"] * 6,
-                value=[],
-                interactive=False,
-            )
-            c_accounts_refresh = gr.Button("🔄 刷新列表")
-
-            def _c_list_rows():
-                try:
-                    accounts = _run(_cred_backend_phone.list_accounts())
-                    rows = []
-                    for a in accounts:
-                        rows.append([
-                            a.get("name", ""),
-                            a.get("phone", ""),
-                            a.get("user_id", ""),
-                            a.get("saved_at", ""),
-                            "✅" if a.get("has_token") else "—",
-                            "✅" if a.get("has_cookie") else "—",
-                        ])
-                    return rows
-                except Exception as e:
-                    return [[f"(读取失败: {e})", "", "", "", "", ""]]
-
-            c_accounts_refresh.click(fn=_c_list_rows, outputs=[c_accounts_table])
-            # 登录成功 → 自动刷新该表
-            phone_poll_timer.tick(fn=_c_list_rows, outputs=[c_accounts_table])
-
+    # ── 初始同步:启动时自动从 credential_backend 拉一次 ──────────────
+    _init_credential_accounts = _load_credential_accounts()
+    if _init_credential_accounts:
+        initial_state.accounts = _init_credential_accounts
+        _accounts_bridge["state"] = initial_state
 
     # ── 套餐配置(多组) ───────────────────────────────────────────
     with gr.Row():
@@ -479,14 +382,23 @@ def build_console_tab() -> None:
     timer = gr.Timer(value=1.0, active=True)
 
     def on_timer_tick(state_val):
-        new_state = ConsoleState(**asdict(state_val))
-        logs = list(new_state.logs)
-        updated = False
+        # P0-2:每次 tick 都从 credential_backend 读,确保 Tab2 登录后 Console 自动刷新
+        cred_accounts = _load_credential_accounts()
+        if cred_accounts:
+            new_state = ConsoleState(**asdict(state_val))
+            new_state.accounts = cred_accounts
+            _accounts_bridge["state"] = new_state
+            updated = True
+        else:
+            new_state = ConsoleState(**asdict(state_val))
+            updated = False
 
         bridge = _accounts_bridge.get("state")
         if bridge is not None and len(bridge.accounts) > len(new_state.accounts):
             new_state = ConsoleState(**asdict(bridge))
             updated = True
+
+        logs = list(new_state.logs)
 
         for stop_event, q in list(ACTIVE_JOBS.values()):
             while True:
