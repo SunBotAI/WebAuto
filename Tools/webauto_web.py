@@ -72,51 +72,95 @@ def _build_credential_tab():
 
     gr.Markdown("### 凭证管理")
 
-    # Tab 1: 粘贴 Token
-    with gr.Tab("粘贴 Token / Cookie"):
-        gr.Markdown("把浏览器 F12 抓的 Authorization / Cookie 粘进下面，点验证并保存")
-        with gr.Row():
-            with gr.Column():
-                t1_name = gr.Textbox(label="账号名", placeholder="主账号", value="主账号")
-                t1_phone = gr.Textbox(label="手机号", placeholder="138xxxxxxxx")
-                t1_token = gr.Textbox(
-                    label="Bearer Token (从 Authorization 头取)",
-                    placeholder="eyJhbGciOiJIUzI1NiIs...",
-                    type="password",
-                )
-                t1_cookie = gr.Textbox(
-                    label="Cookie (可选)",
-                    placeholder="atlas_t=xxx; _bl_uid=xxx; ...",
-                    lines=4,
-                )
-                t1_btn = gr.Button("✅ 验证并保存", variant="primary")
-            with gr.Column():
-                t1_result = gr.Textbox(label="结果", interactive=False, lines=8)
-
-        def _do_check(name, phone, token, cookie):
-            from Tools.credential_backend import CredentialBackend
-            backend = CredentialBackend(
-                secret_store_path=".secrets.enc",
-                key_env="GLM_GRABBER_KEY",
-                ask=False,
-            )
-            return _format_check_result(_run(backend.check_and_save(name, phone, token, cookie)))
-
-        t1_btn.click(
-            fn=_do_check,
-            inputs=[t1_name, t1_phone, t1_token, t1_cookie],
-            outputs=[t1_result],
+    # ── Tab 1: 手动填凭证（Token/Cookie）────────────────────────
+    with gr.Tab("🔑 手动填凭证(Token/Cookie)"):
+        gr.Markdown(
+            "把浏览器 F12 抓的 Authorization / Cookie 粘进下面，点验证并保存。\n"
+            "验证通过后自动落加密凭证库（Fernet 加密），**不存明文**。"
         )
 
-    # Tab 2: 手机号+短信码登录(自动)
+        # 基本信息
+        with gr.Group():
+            t1_name = gr.Textbox(
+                label="账号名",
+                placeholder="主账号",
+                value="主账号",
+                info="本地标识名，方便在 Console 里区分账号",
+            )
+            t1_phone = gr.Textbox(
+                label="手机号",
+                placeholder="138xxxxxxxx",
+                info="用于智谱登录的手机号",
+            )
+
+        # 凭证区（折叠起来避免视觉干扰）
+        with gr.Accordion("🔐 Token / Cookie（点展开）", open=True):
+            with gr.Group():
+                t1_token = gr.Textbox(
+                    label="Bearer Token",
+                    placeholder="eyJhbGciOiJIUzI1NiIs...",
+                    type="password",
+                    info="从浏览器 F12 → Network → Authorization 头复制，格式为 'Bearer xxx'",
+                )
+                t1_cookie = gr.Textbox(
+                    label="Cookie（可选）",
+                    placeholder="atlas_t=xxx; _bl_uid=xxx; ...",
+                    lines=3,
+                    info="从 F12 → Network → 请求头复制 Cookie 字段",
+                )
+
+        # 操作按钮
+        with gr.Group():
+            with gr.Row():
+                t1_test_btn = gr.Button("🔍 测试连接", variant="secondary")
+                t1_save_btn = gr.Button("✅ 验证并保存", variant="primary")
+
+            test_result = gr.Textbox(label="测试结果", interactive=False, lines=2)
+            save_result = gr.Textbox(label="保存结果", interactive=False, lines=3)
+
+        def _do_test(name, phone, token, cookie):
+            from Tools.credential_backend import CredentialBackend
+            backend = CredentialBackend(ask=False)
+            result = _run(backend.check_and_save(name, phone, token, cookie))
+            lines = []
+            if result.get("success"):
+                lines.append(f"✅ Token 有效（user_id: {result.get('user_id', '?')}）")
+            else:
+                err = result.get("message", "未知错误")
+                if "验证失败" in err or "401" in err or "token invalid" in err.lower():
+                    lines.append(f"❌ Token/Cookie 无效：{err}")
+                elif "网络" in err:
+                    lines.append(f"❌ 网络错误：{err}")
+                elif "授权" in err or "403" in err:
+                    lines.append(f"❌ 授权失败（403）：{err}")
+                else:
+                    lines.append(f"❌ 验证失败：{err}")
+            return "\n".join(lines)
+
+        def _do_save(name, phone, token, cookie):
+            from Tools.credential_backend import CredentialBackend
+            backend = CredentialBackend(ask=False)
+            result = _run(backend.check_and_save(name, phone, token, cookie))
+            return _format_check_result(result)
+
+        t1_test_btn.click(
+            fn=_do_test,
+            inputs=[t1_name, t1_phone, t1_token, t1_cookie],
+            outputs=[test_result],
+        )
+        t1_save_btn.click(
+            fn=_do_save,
+            inputs=[t1_name, t1_phone, t1_token, t1_cookie],
+            outputs=[save_result],
+        )
+
+    # ── Tab 2: 手机号+短信码登录(自动)────────────────────────
     with gr.Tab("📱 手机号登录(自动)"):
         gr.Markdown(
-            "**流程: 启动登录 → 浏览器自动打开智谱首页 → 点登录 → 输手机号 → 触发腾讯点选**",
-            "**你在浏览器里用鼠标点汉字 → 等短信 → 面板填 6 位码 → 自动登录 → 落加密库**",
-            "",
-            "面板上的「验证码截图」仅供你确认是哪张图;汉字必须用鼠标在浏览器里点",
-            '面板上的「验证码截图」仅供你确认是哪张图;汉字必须用鼠标在浏览器里点\n'
-            "(弹窗是浏览器层面的,Playwright 控制不了鼠标语义)。\n"
+            "**流程: 启动登录 → 浏览器自动打开智谱首页 → 点登录 → 输手机号 → 触发腾讯点选**\n"
+            "**你在浏览器里用鼠标点汉字 → 等短信 → 面板填 6 位码 → 自动登录 → 落加密库**\n\n"
+            "面板上的「验证码截图」仅供你确认是哪张图；汉字必须用鼠标在浏览器里点。\n"
+            "（弹窗是浏览器层面的，Playwright 控制不了鼠标语义）。"
         )
         _t2_state: dict = {"task": None, "sms_future": None, "running": False}
 
@@ -238,9 +282,8 @@ def _build_credential_tab():
         _t2_timer = gr.Timer(value=3)
         _t2_timer.tick(fn=_t2_poll, outputs=[t2_stage, t2_status])
 
-
-    # Tab 3: 已保存账号
-    with gr.Tab("已保存账号"):
+    # ── Tab 3: 已保存账号───────────────────────────────────────
+    with gr.Tab("📋 已保存账号"):
         gr.Markdown("加密凭证库里已保存的账号（token/cookie 不显示，仅元数据）")
         t3_refresh = gr.Button("🔄 刷新列表")
         t3_table = gr.Dataframe(

@@ -69,31 +69,17 @@ class CredentialBackend:
     # ----------------------------------------------------------- 内部工具
 
     def _get_passphrase(self) -> Optional[str]:
-        """从环境变量拿加密口令。"""
+        """从环境变量拿加密口令（兼容 legacy）。"""
         return os.environ.get(self.key_env)
 
     def _get_store(self, *, write: bool = False) -> SecretStore:
         """懒加载 SecretStore。
 
-        读路径:口令不存在 → 抛 CryptoError(UI 可捕获显示)。
-        写路径:口令不存在 → 用一个临时口令加密(后续导入正式口令可读)。
+        SecretStore 自己处理 WEBAUTO_MASTER_KEY / GLM_GRABBER_KEY /
+        ~/.webauto_master.key 三种密钥来源，CredentialBackend 不再同步环境变量。
         """
         if self._cached_store is not None:
             return self._cached_store
-        passphrase = self._get_passphrase()
-        # SecretStore 内部固定读 os.environ["GLM_GRABBER_KEY"],如果用户用其他
-        # 环境变量名,我们同步设置到默认 key(避免 SecretStore 的耦合)。
-        if passphrase is None and not write:
-            raise CryptoError(
-                f"未设置环境变量 {self.key_env},无法读取凭证库。"
-                f"请先设置:export {self.key_env}=<passphrase>"
-            )
-        if passphrase is None:
-            # 临时口令模式
-            passphrase = "webauto-temp-key-please-set-env-var"
-        if os.environ.get("GLM_GRABBER_KEY") != passphrase:
-            # 把 user 提供的口令同步到 SecretStore 默认 key
-            os.environ["GLM_GRABBER_KEY"] = passphrase
         self._cached_store = SecretStore(self.secret_store_path, ask=False)
         return self._cached_store
 
@@ -258,18 +244,28 @@ class CredentialBackend:
             return {"success": False, "message": str(e)}
 
     def check_passphrase(self) -> dict[str, Any]:
-        """检查 GLM_GRABBER_KEY 环境变量是否设置。给 UI 在启动时提示。"""
-        passphrase = self._get_passphrase()
-        if passphrase:
-            return {"configured": True, "message": f"✅ 已从 {self.key_env} 读取加密口令"}
+        """检查加密密钥是否配置（支持 WEBAUTO_MASTER_KEY 和 GLM_GRABBER_KEY）。"""
+        from Core.Zhipu.crypto import WEBAUTO_KEY_ENV, LEGACY_KEY_ENV, _load_auto_key
+        webauto_key = os.environ.get(WEBAUTO_KEY_ENV)
+        legacy_key = os.environ.get(LEGACY_KEY_ENV)
+        auto_key = _load_auto_key()
+        if webauto_key:
+            return {"configured": True, "message": f"✅ 已从 {WEBAUTO_KEY_ENV} 读取加密密钥"}
+        elif legacy_key:
+            return {"configured": True, "message": f"✅ 已从 {LEGACY_KEY_ENV} 读取加密密钥（兼容模式）"}
+        elif auto_key:
+            return {"configured": True, "message": f"✅ 已从 ~/.webauto_master.key 读取加密密钥"}
         else:
             return {
                 "configured": False,
                 "message": (
-                    f"⚠️ 未设置 {self.key_env} 环境变量。\n"
-                    f"粘贴 token 仍可用,但保存的凭证将用临时口令加密,\n"
-                    f"重启后无法读取。\n\n"
-                    f"建议:export {self.key_env}=<your-passphrase>"
+                    f"⚠️ 未找到 {WEBAUTO_KEY_ENV} 或 {LEGACY_KEY_ENV}，\n"
+                    f"凭证将用临时密钥加密，重启后可能无法读取。\n\n"
+                    f"建议:\n"
+                    f"  export {WEBAUTO_KEY_ENV}=$(cat ~/.webauto_master.key)\n"
+                    f"  # 或\n"
+                    f"  export {LEGACY_KEY_ENV}=<your-passphrase>\n\n"
+                    f"运行 python Tools/migrate_secrets.py 可迁移老凭证。"
                 ),
             }
 
