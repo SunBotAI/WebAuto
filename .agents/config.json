@@ -1,0 +1,62 @@
+{
+  "project": "WebAuto",
+  "shared_memory": "docs/",
+  "task_file": "docs/02-项目执行/TASKS.md",
+  "worklog_file": "docs/02-项目执行/WORKLOG.md",
+  "task_id_spec": "docs/01-项目方案/WebAuto-最终方案.md",
+  "agents": {
+    "coordinator": "大白",
+    "backend": "小千",
+    "frontend": "小月",
+    "bapm": "小豆",
+    "tester": "小测",
+    "media": "小健",
+    "sre": "小维",
+    "architect": "小千"
+  },
+  "task_id_prefixes": {
+    "architecture": "ARCH",
+    "backend": "BACK",
+    "frontend": "FRONT",
+    "requirement": "REQ",
+    "testing": "TEST",
+    "infrastructure": "INFRA",
+    "media": "MEDIA",
+    "ops": "OPS"
+  },
+  "task_id_format": "WEB-{DOMAIN}-{NNN}",
+  "task_id_examples": [
+    "WEB-ARCH-001 (ADR)",
+    "WEB-BACK-007 (BrowserKernel 实现)",
+    "WEB-FRONT-002 (UI 调整)"
+  ],
+  "permissions": {
+    "architect_can_write": ["docs/", ".agents/"],
+    "developer_can_write": ["src/", "Tests/"],
+    "frontend_can_write": ["src/webauto/application/dashboard.py"],
+    "tester_can_write": ["Tests/"],
+    "coordinator_can_write": ["docs/", ".agents/", "src/", "Tests/"]
+  },
+  "quality_gates": {
+    "unit": ["pytest Tests/ -x -q"],
+    "lint": ["ruff check src/ Tests/"],
+    "full": ["pytest Tests/ -x -q && ruff check src/ Tests/"]
+  },
+  "required_skills": [
+    "project-protocol",
+    "task-driver-handoff",
+    "verification-before-completion"
+  ],
+  "developer_skills": [
+    "test-driven-development"
+  ],
+  "tester_skills": [
+    "code-review",
+    "e2e-testing"
+  ],
+  "bapm_skills": [
+    "acceptance-criteria",
+    "blocker-escalation"
+  ],
+  "handoff_checklist": "docs/02-项目执行/TASKS.md"
+}
