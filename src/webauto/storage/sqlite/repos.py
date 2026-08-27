@@ -47,6 +47,17 @@ class ApprovalRow:
     updated_at_ms: int = 0
 
 
+@dataclass
+class LeaseRow:
+    lease_id: str
+    profile_id: str
+    holder_id: str
+    fencing_token: str
+    expires_at_ms: int
+    created_at_ms: int = 0
+    updated_at_ms: int = 0
+
+
 def _now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -272,3 +283,108 @@ def append_audit(
         ),
     )
     return event_id
+
+
+class LeaseRepo:
+    """Cross-process profile ownership with TTL + fencing tokens.
+
+    Only one row per ``profile_id`` is live at a time. ``acquire`` rejects
+    if the current row is still alive; ``takeover`` waits for the TTL to
+    expire (or steals with the ``force`` flag) and mints a new fencing
+    token that downstream callers must present at Dispatch.
+    """
+
+    def __init__(self, conn: sqlite3.Connection, *, ttl_ms: int = 5 * 60_000) -> None:
+        self._conn = conn
+        self._ttl_ms = ttl_ms
+
+    def get(self, profile_id: str) -> LeaseRow | None:
+        row = self._conn.execute(
+            "SELECT lease_id, profile_id, holder_id, fencing_token, "
+            "expires_at_ms, created_at_ms, updated_at_ms "
+            "FROM profile_leases WHERE profile_id = ?",
+            (profile_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return LeaseRow(*row)
+
+    def acquire(self, profile_id: str, holder_id: str) -> LeaseRow | None:
+        """Try to take the lease. Returns None if the current holder is alive."""
+        now = _now_ms()
+        expires = now + self._ttl_ms
+        # Reclaim if the slot is empty OR the previous lease is expired.
+        cur = self._conn.execute(
+            "SELECT lease_id, expires_at_ms FROM profile_leases "
+            "WHERE profile_id = ?",
+            (profile_id,),
+        ).fetchone()
+        if cur is not None:
+            prev_id, prev_expires = cur
+            if prev_expires > now and not self._same_holder(prev_id, holder_id):
+                return None
+            self._conn.execute("DELETE FROM profile_leases WHERE profile_id = ?",
+                               (profile_id,))
+        row = LeaseRow(
+            lease_id="lease-" + uuid.uuid4().hex,
+            profile_id=profile_id,
+            holder_id=holder_id,
+            fencing_token="ft-" + uuid.uuid4().hex,
+            expires_at_ms=expires,
+            created_at_ms=now,
+            updated_at_ms=now,
+        )
+        self._conn.execute(
+            "INSERT INTO profile_leases "
+            "(lease_id, profile_id, holder_id, fencing_token, expires_at_ms, "
+            " created_at_ms, updated_at_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                row.lease_id,
+                row.profile_id,
+                row.holder_id,
+                row.fencing_token,
+                row.expires_at_ms,
+                row.created_at_ms,
+                row.updated_at_ms,
+            ),
+        )
+        return row
+
+    def renew(self, profile_id: str, holder_id: str) -> LeaseRow | None:
+        """Refresh TTL for the current holder only."""
+        now = _now_ms()
+        cur = self._conn.execute(
+            "SELECT lease_id, expires_at_ms FROM profile_leases "
+            "WHERE profile_id = ?",
+            (profile_id,),
+        ).fetchone()
+        if cur is None or not self._same_holder(cur[0], holder_id):
+            return None
+        self._conn.execute(
+            "UPDATE profile_leases SET expires_at_ms = ?, updated_at_ms = ? "
+            "WHERE profile_id = ? AND lease_id = ?",
+            (now + self._ttl_ms, now, profile_id, cur[0]),
+        )
+        return self.get(profile_id)
+
+    def release(self, profile_id: str, holder_id: str) -> bool:
+        """Release only if the caller is the current holder."""
+        cur = self._conn.execute(
+            "SELECT lease_id FROM profile_leases WHERE profile_id = ?",
+            (profile_id,),
+        ).fetchone()
+        if cur is None or not self._same_holder(cur[0], holder_id):
+            return False
+        self._conn.execute(
+            "DELETE FROM profile_leases WHERE profile_id = ?",
+            (profile_id,),
+        )
+        return True
+
+    def _same_holder(self, lease_id: str, holder_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT holder_id FROM profile_leases WHERE lease_id = ?",
+            (lease_id,),
+        ).fetchone()
+        return row is not None and row[0] == holder_id
