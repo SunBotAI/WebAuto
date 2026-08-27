@@ -66,6 +66,7 @@ class GovernedActions:
         self._conn = open_db(_session_db_path(session_id))
         self._attempts = ActionAttemptRepo(self._conn)
         self._approvals = ApprovalRepo(self._conn)
+        self._control_owner: str | None = None
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -133,6 +134,43 @@ class GovernedActions:
             expires_at_ms=approval.expires_at_ms,
         )
 
+    def takeover(self) -> dict[str, object]:
+        """B3-03: human takes over the browser session.
+
+        Sets control_owner to 'human' so subsequent page actions are
+        rejected until ``return_control`` is called.
+        """
+        self._control_owner = "human"
+        append_audit(
+            self._conn,
+            session_id=self._session_id,
+            attempt_id=None,
+            action_type="browser.takeover",
+            error_code=None,
+            evidence_ids=[],
+            actor="user",
+        )
+        return {"status": "takeover", "control_owner": "human"}
+
+    def return_control(self) -> dict[str, object]:
+        """B3-03: human returns control; new ActionAttempt starts on next action."""
+        self._control_owner = None
+        append_audit(
+            self._conn,
+            session_id=self._session_id,
+            attempt_id=None,
+            action_type="browser.return_control",
+            error_code=None,
+            evidence_ids=[],
+            actor="user",
+        )
+        return {"status": "returned", "control_owner": None}
+
+    def assert_agent_allowed(self) -> None:
+        """Raise CONTROL_OWNED_BY_HUMAN if the user is currently driving."""
+        if self._control_owner == "human":
+            raise PermissionError("CONTROL_OWNED_BY_HUMAN: agent actions paused")
+
     def get(self, approval_id: str) -> dict[str, object] | None:
         row = self._approvals.get(approval_id)
         if row is None:
@@ -165,6 +203,13 @@ class GovernedActions:
             raise KeyError(f"unknown approval_id: {approval_id}")
         if row.consumed:
             raise RuntimeError("approval already consumed")
+
+        # B3-03: agent actions are paused while the user is driving.
+        if self._control_owner == "human":
+            return {
+                "status": "blocked",
+                "reason": "CONTROL_OWNED_BY_HUMAN: agent actions paused",
+            }
 
         # B3-02: dispatch is rejected if the live fencing_token has rotated.
         live = LeaseRepo(self._conn, ttl_ms=5 * 60_000).get(profile_id)

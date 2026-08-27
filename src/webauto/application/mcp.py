@@ -105,6 +105,14 @@ TOOLS: tuple[dict[str, str], ...] = (
         "name": "governed_action_execute",
         "description": "Atomically consume a bound Approval and record the external write",
     },
+    {
+        "name": "human_takeover",
+        "description": "Pause Agent page actions and hand the browser session to the user",
+    },
+    {
+        "name": "human_return_control",
+        "description": "Resume Agent page actions after the user has finished",
+    },
 )
 
 
@@ -333,12 +341,19 @@ async def _dispatch(
                     return {"success": False, "data": None,
                             "error": f"unknown approval_id: {payload.get('approval_id')}"}
                 data = fetched
-            else:  # governed_action_execute
+            elif name == "governed_action_execute":
                 result = await actions.execute(
                     str(payload.pop("approval_id")),
                     expected_object_digest=str(payload.pop("expected_object_digest")),
                 )
                 data = result
+            elif name == "human_takeover":
+                data = actions.takeover()
+            elif name == "human_return_control":
+                data = actions.return_control()
+            else:
+                return {"success": False, "data": None,
+                        "error": f"unknown governed action: {name}"}
             return {"success": True, "data": jsonable(data), "error": None}
 
         if name == "shopping_workspace_create":
