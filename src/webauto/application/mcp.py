@@ -11,6 +11,7 @@ from webauto.runtime.file_workspace import RunFileWorkspace
 
 from .adapters import McpAdapter
 from .entrypoints import jsonable
+from .governed_actions import GovernedActions
 from .mcp_browser import McpBrowserRuntime
 from .service import Actor, ApplicationService, Role
 from .settings import RuntimeConfigStore
@@ -92,6 +93,18 @@ TOOLS: tuple[dict[str, str], ...] = (
         "description": "Upload one allowlisted local-user file for MCP workflows",
     },
     {"name": "file_list", "description": "List MCP-owned uploaded files"},
+    {
+        "name": "governed_action_prepare",
+        "description": "Bind one non-idempotent write to an Approval (SHA-256 of payload + page revision)",
+    },
+    {
+        "name": "governed_action_get",
+        "description": "Read the current binding of a governed Approval",
+    },
+    {
+        "name": "governed_action_execute",
+        "description": "Atomically consume a bound Approval and record the external write",
+    },
 )
 
 
@@ -289,6 +302,43 @@ async def _dispatch(
                     file_id=str(payload.pop("file_id")),
                     run_id=run_id,
                 ).public()
+            return {"success": True, "data": jsonable(data), "error": None}
+
+        if name.startswith("governed_action_"):
+            session_id = str(payload.pop("session_id", "default-session"))
+            actions = GovernedActions(session_id)
+            if name == "governed_action_prepare":
+                result = actions.prepare(
+                    action_type=str(payload.pop("action_type")),
+                    client_request_id=str(payload.pop("client_request_id")),
+                    page_revision=str(payload.pop("page_revision")),
+                    target=dict(payload.pop("target", {})),
+                    content_digest=str(payload.pop("content_digest")),
+                    file_digest=payload.pop("file_digest"),
+                    identity_digest=str(payload.pop("identity_digest", "default-identity")),
+                )
+                data = {
+                    "approval_id": result.approval_id,
+                    "attempt_id": result.attempt_id,
+                    "action_hash": result.action_hash,
+                    "page_revision": result.page_revision,
+                    "object_digest": result.object_digest,
+                    "identity_digest": result.identity_digest,
+                    "policy_version": result.policy_version,
+                    "expires_at_ms": result.expires_at_ms,
+                }
+            elif name == "governed_action_get":
+                fetched = actions.get(str(payload.pop("approval_id")))
+                if fetched is None:
+                    return {"success": False, "data": None,
+                            "error": f"unknown approval_id: {payload.get('approval_id')}"}
+                data = fetched
+            else:  # governed_action_execute
+                result = await actions.execute(
+                    str(payload.pop("approval_id")),
+                    expected_object_digest=str(payload.pop("expected_object_digest")),
+                )
+                data = result
             return {"success": True, "data": jsonable(data), "error": None}
 
         if name == "shopping_workspace_create":
