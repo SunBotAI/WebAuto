@@ -10,8 +10,6 @@ from webauto.domain import Action
 from webauto.runtime.file_workspace import RunFileWorkspace
 
 from .adapters import McpAdapter
-from .browser_agent import build_butler_service
-from .butler_service import ButlerService
 from .entrypoints import jsonable
 from .mcp_browser import McpBrowserRuntime
 from .service import Actor, ApplicationService, Role
@@ -33,16 +31,11 @@ def _default_service() -> ApplicationService:
 
 def _resolve_butler(
     service: ApplicationService | None,
-    butler: ButlerService | None,
+    butler: Any | None,
     store: RuntimeConfigStore,
-) -> ButlerService:
-    if butler is not None:
-        return butler
-    if service is not None:
-        return build_butler_service(service, store)
-    from webauto.bootstrap import get_butler_service
-
-    return get_butler_service(store)
+) -> Any | None:
+    """Stub retained after B1-02 deleted butler/vertical tools."""
+    return None
 
 
 _BROWSER_RUNTIMES: dict[str, McpBrowserRuntime] = {}
@@ -94,110 +87,12 @@ TOOLS: tuple[dict[str, str], ...] = (
         "name": "browser_screenshot",
         "description": "Capture the active page into the configured content-addressed artifact store",
     },
-    {"name": "goal_create", "description": "Create a governed WebAuto goal"},
-    {"name": "run_create", "description": "Create a run for an existing goal"},
-    {"name": "run_get", "description": "Read one tenant-scoped run"},
-    {"name": "run_list", "description": "List tenant-scoped runs"},
-    {"name": "run_detail", "description": "Read a run with timeline and plan"},
-    {"name": "run_result", "description": "Read a run persisted result"},
-    {"name": "run_start", "description": "Start a ready run"},
-    {"name": "run_pause", "description": "Pause a running run"},
-    {"name": "run_resume", "description": "Resume a paused run"},
-    {"name": "run_cancel", "description": "Cancel a run"},
-    {"name": "run_takeover", "description": "Request human browser control"},
-    {"name": "run_return_control", "description": "Return browser control to WebAuto"},
-    {"name": "approval_list", "description": "List tenant-scoped approvals"},
-    {"name": "approval_approve", "description": "Approve one pending action"},
-    {"name": "approval_reject", "description": "Reject one pending action"},
-    {"name": "approval_revoke", "description": "Revoke one approval"},
-    {
-        "name": "butler_message",
-        "description": "Ask the personal WebAuto butler to execute a web task",
-    },
-    {"name": "task_continue", "description": "Continue an existing Butler conversation"},
-    {"name": "conversation_list", "description": "List Butler conversations"},
-    {"name": "conversation_get", "description": "Read one Butler conversation"},
-    {
-        "name": "browser_session_create",
-        "description": "Open the configured managed browser session",
-    },
-    {
-        "name": "browser_session_attach",
-        "description": "Attach the configured authorized CDP session",
-    },
-    {"name": "browser_session_status", "description": "Read one browser profile session status"},
-    {
-        "name": "browser_session_close",
-        "description": "Close WebAuto browser session without killing attached Chrome",
-    },
-    {"name": "settings_get", "description": "Read non-secret local runtime settings"},
-    {
-        "name": "settings_update",
-        "description": "Update local runtime settings and encrypted secrets",
-    },
-    {"name": "settings_test", "description": "Test configured browser, database, Redis and model"},
-    {
-        "name": "settings_detect_browser",
-        "description": "Detect local Chrome, Edge and CDP endpoints",
-    },
-    {
-        "name": "settings_initialize_database",
-        "description": "Initialize the configured PostgreSQL schema",
-    },
     {
         "name": "file_upload",
         "description": "Upload one allowlisted local-user file for MCP workflows",
     },
     {"name": "file_list", "description": "List MCP-owned uploaded files"},
-    {"name": "file_authorize", "description": "Authorize one MCP-owned file for a run"},
-    {
-        "name": "shopping_workspace_create",
-        "description": "Create a normalized cross-site shopping result card",
-    },
-    {
-        "name": "xianyu_buy_workspace_create",
-        "description": "Create a Xianyu buy risk and inquiry workspace",
-    },
-    {
-        "name": "xianyu_listing_workspace_create",
-        "description": "Create a file-bound Xianyu listing draft",
-    },
-    {
-        "name": "xianyu_store_workspace_create",
-        "description": "Create a read-only Xianyu store snapshot",
-    },
-    {"name": "vertical_workspace_get", "description": "Read one shopping or Xianyu workspace"},
-    {
-        "name": "governed_action_prepare",
-        "description": "Create a bound preview and approval for one vertical write",
-    },
-    {"name": "governed_action_get", "description": "Read one governed vertical action preview"},
-    {
-        "name": "governed_action_execute",
-        "description": "Execute an approved action through the one-write browser gate",
-    },
 )
-
-_OPERATIONS = {
-    "goal_create": "create_goal",
-    "run_create": "create_run",
-    "run_get": "get_run",
-    "run_list": "list_runs",
-    "run_detail": "run_detail",
-    "run_result": "get_run_result",
-    "run_start": "start_run",
-    "run_pause": "pause_run",
-    "run_resume": "resume_run",
-    "run_cancel": "cancel_run",
-    "run_takeover": "takeover",
-    "run_return_control": "return_control",
-    "approval_list": "list_approvals",
-    "approval_approve": "approve",
-    "approval_reject": "reject",
-    "approval_revoke": "revoke_approval",
-    "conversation_list": "list_conversations",
-    "conversation_get": "get_conversation",
-}
 
 
 def list_tools() -> list[dict[str, str]]:
@@ -214,7 +109,7 @@ async def call_tool(
     arguments: dict[str, Any],
     *,
     service: ApplicationService | None = None,
-    butler: ButlerService | None = None,
+    butler: Any | None = None,
     settings_store: RuntimeConfigStore | None = None,
     browser_runtime: McpBrowserRuntime | None = None,
 ) -> dict[str, Any]:
