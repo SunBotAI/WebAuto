@@ -1,45 +1,7 @@
-"""Replaceable dynamic browser-agent implementations."""
+"""Replaceable dynamic browser-agent implementations.
 
-from .base import BrowserAgentBackend
-from .browser_use import (
-    BrowserAgentPolicyNotReady,
-    BrowserUseAdapter,
-    BrowserUseRuntime,
-    DefaultBrowserUseRuntime,
-)
-from .interactive_tools import (
-    LOW_RISK_BROWSER_USE_ACTIONS,
-    BrowserUseInteractiveToolsFactory,
-)
-from .model_bridge import BrowserUseDependencyError, BrowserUseModelBridge
-from .policy import (
-    BrowserAgentPolicyViolation,
-    BrowserAgentSecurityPolicy,
-    SensitiveDataRedactor,
-)
-from .tools import (
-    READ_ONLY_BROWSER_USE_ACTIONS,
-    BrowserUseReadOnlyToolsFactory,
-    BrowserUseToolsContractError,
-)
-from .write_grants import BrowserWriteGrant, BrowserWriteGrantAuthority
-
-__all__ = [
-    "LOW_RISK_BROWSER_USE_ACTIONS",
-    "READ_ONLY_BROWSER_USE_ACTIONS",
-    "BrowserAgentBackend",
-    "BrowserAgentPolicyNotReady",
-    "BrowserAgentPolicyViolation",
-    "BrowserAgentSecurityPolicy",
-    "BrowserUseAdapter",
-    "BrowserUseDependencyError",
-    "BrowserUseInteractiveToolsFactory",
-    "BrowserUseModelBridge",
-    "BrowserUseReadOnlyToolsFactory",
-    "BrowserUseRuntime",
-    "BrowserUseToolsContractError",
-    "BrowserWriteGrant",
-    "BrowserWriteGrantAuthority",
-    "DefaultBrowserUseRuntime",
-    "SensitiveDataRedactor",
-]
+Eager re-exports have been removed per B1-01 of the v3.3 plan: the shared
+Policy and action policy have moved to `webauto.runtime.browser`. The
+remaining modules here (base, browser_use, interactive_tools, model_bridge,
+tools, write_grants) are slated for deletion in B4-01 alongside Browser Use.
+"""

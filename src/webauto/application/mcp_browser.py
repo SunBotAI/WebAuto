@@ -17,12 +17,12 @@ from typing import Any
 from urllib.parse import urldefrag
 from uuid import uuid4
 
-from webauto.agent_backends.action_policy import (
+from webauto.runtime.browser.action_policy import (
     click_requires_approval,
     external_write_operation,
     input_requires_human,
 )
-from webauto.agent_backends.policy import (
+from webauto.runtime.browser.policy import (
     BrowserAgentPolicyViolation,
     BrowserAgentSecurityPolicy,
 )
