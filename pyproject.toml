@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webauto"
+version = "3.0.0.dev0"
+description = "Policy-governed AI web automation runtime"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "cryptography>=42",
+    "playwright>=1.40",
+    "pydantic>=2.5",
+]
+
+[project.scripts]
+webauto = "webauto.application.cli:main"
+webauto-web = "webauto.adapters.web_server:main"
+webauto-mcp = "webauto.adapters.mcp_server:main"
+
+[project.optional-dependencies]
+api = ["fastapi>=0.104", "uvicorn>=0.24"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.6"]
+postgres = ["psycopg[binary]>=3.1"]
+redis = ["redis>=5"]
+mcp = ["mcp>=1.0"]
+browser-agent = ["browser-use==0.13.7; python_version >= '3.11'"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"webauto.storage" = ["migrations/*.sql"]
+"webauto.site_skills" = ["examples/*/*.json", "examples/*/fixtures/*.json", "builtin/*/*.json", "builtin/*/fixtures/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["Tests"]
+python_files = ["test_*.py"]
+pythonpath = ["src", "."]
+addopts = ["-ra"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "Tests"]

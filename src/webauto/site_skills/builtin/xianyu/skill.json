@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "site": "www.goofish.com",
+  "version": "0.1.0",
+  "pages": {
+    "search": {"url_patterns": ["https://www.goofish.com/search*"], "dom_markers": ["data-webauto-page=search"], "a11y_markers": ["搜索结果"]},
+    "detail": {"url_patterns": ["https://www.goofish.com/item*"], "dom_markers": ["data-webauto-page=detail"], "a11y_markers": ["商品详情"]},
+    "publish": {"url_patterns": ["https://www.goofish.com/*publish*"], "dom_markers": ["data-webauto-page=publish"], "a11y_markers": ["发布闲置"]},
+    "store": {"url_patterns": ["https://www.goofish.com/*"], "dom_markers": ["data-webauto-page=store"], "a11y_markers": ["我的商品"]}
+  },
+  "capabilities": {
+    "web.list.extract": {"page": "search", "preconditions": ["authorized_or_public", "results_visible"], "actions": [{"kind": "extract", "target": {"landmark": "result_list"}, "arguments": {}}], "verifier": {"kind": "page_state", "expectation": {"dom_contains": "data-item-card"}}, "recovery": ["reground", "general_agent", "human_takeover"]},
+    "web.item.inspect": {"page": "detail", "preconditions": ["detail_visible"], "actions": [{"kind": "extract", "target": {"landmark": "item_detail"}, "arguments": {}}], "verifier": {"kind": "page_state", "expectation": {"dom_contains": "data-item-detail"}}, "recovery": ["reground", "human_takeover"]},
+    "web.listing.draft": {"page": "publish", "preconditions": ["authenticated", "user_facts_validated"], "actions": [{"kind": "type", "target": {"landmark": "listing_title"}, "arguments": {"value": "{{ title }}"}}, {"kind": "type", "target": {"landmark": "listing_description"}, "arguments": {"value": "{{ description }}"}}], "verifier": {"kind": "page_state", "expectation": {"dom_contains": "data-draft-ready"}}, "recovery": ["reground", "save_draft", "human_takeover"]},
+    "web.listing.publish": {"page": "publish", "preconditions": ["authenticated", "draft_verified", "explicit_approval"], "actions": [{"kind": "click", "target": {"landmark": "publish_button"}, "arguments": {}}], "verifier": {"kind": "page_state", "expectation": {"dom_contains": "data-publish-success"}}, "recovery": ["stop_without_retry", "human_takeover"]},
+    "web.store.inspect": {"page": "store", "preconditions": ["authenticated"], "actions": [{"kind": "extract", "target": {"landmark": "store_items"}, "arguments": {}}], "verifier": {"kind": "page_state", "expectation": {"dom_contains": "data-store-item"}}, "recovery": ["reground", "human_takeover"]}
+  },
+  "landmarks": {
+    "result_list": {"selector": "[data-item-card]", "confidence": 0.35, "alternatives": ["main"]},
+    "item_detail": {"selector": "[data-item-detail]", "confidence": 0.35, "alternatives": ["main"]},
+    "listing_title": {"selector": "input[aria-label*=标题]", "confidence": 0.25, "alternatives": ["input[placeholder*=标题]"]},
+    "listing_description": {"selector": "textarea[aria-label*=描述]", "confidence": 0.25, "alternatives": ["textarea"]},
+    "publish_button": {"selector": "button:has-text('发布')", "confidence": 0.25, "alternatives": ["[role=button]:has-text('发布')"]},
+    "store_items": {"selector": "[data-store-item]", "confidence": 0.25, "alternatives": ["main"]}
+  },
+  "fixtures": ["fixtures/search.json", "fixtures/detail.json", "fixtures/publish.json", "fixtures/store.json"]
+}

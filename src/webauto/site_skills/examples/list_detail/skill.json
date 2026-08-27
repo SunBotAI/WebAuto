@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "site": "catalog.example.test",
+  "version": "1.0.0",
+  "pages": {
+    "list": {
+      "url_patterns": ["https://catalog.example.test/search*"],
+      "dom_markers": ["data-page=list"],
+      "a11y_markers": ["搜索结果"]
+    },
+    "detail": {
+      "url_patterns": ["https://catalog.example.test/item/*"],
+      "dom_markers": ["data-page=detail"],
+      "a11y_markers": ["商品详情"]
+    }
+  },
+  "capabilities": {
+    "web.list.extract": {
+      "page": "list",
+      "preconditions": ["results_visible"],
+      "actions": [{"kind": "extract", "target": {"landmark": "result_list"}, "arguments": {}}],
+      "verifier": {"kind": "page_state", "expectation": {"dom_contains": "data-result"}},
+      "recovery": ["reground", "general_agent", "human_takeover"]
+    }
+  },
+  "landmarks": {
+    "result_list": {"selector": "[data-page=list] [data-result]", "confidence": 0.98}
+  },
+  "fixtures": ["fixtures/list.json"]
+}

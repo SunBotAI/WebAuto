@@ -1,0 +1,9 @@
+{
+  "page_state": {
+    "url": "https://publisher.example.test/editor",
+    "dom_snapshot": "<main data-page=editor>预览就绪</main>",
+    "accessibility_snapshot": {"snapshot": "内容编辑器"}
+  },
+  "expected_page": "editor",
+  "capability": "web.complex_form.prepare"
+}

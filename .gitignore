@@ -19,6 +19,14 @@ build/
 # pytest + OpenClaw
 .pytest_cache/
 .claude/
+.driver/
+
+# 本地运行时数据（不得提交）
+tmp/
+var/
+data/profiles/
+data/secrets/
+.secrets.enc*
 
 # 截图和录屏
 demo/*.png
@@ -45,3 +53,6 @@ logs/
 References/GlmCodingGrabber/
 References/GlmCodingHelper/
 References/GlmRush/
+
+# 历史协作归档（不属于 WebAuto 源码）
+claw-archive/

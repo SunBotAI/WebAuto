@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "site": "publisher.example.test",
+  "version": "1.0.0",
+  "pages": {
+    "editor": {
+      "url_patterns": ["https://publisher.example.test/editor*"],
+      "dom_markers": ["data-page=editor"],
+      "a11y_markers": ["内容编辑器"]
+    }
+  },
+  "capabilities": {
+    "web.complex_form.prepare": {
+      "page": "editor",
+      "preconditions": ["authorized_account", "draft_confirmed"],
+      "actions": [
+        {"kind": "upload", "target": {"landmark": "images"}, "arguments": {"files": "{{ image_files }}"}},
+        {"kind": "type", "target": {"landmark": "title"}, "arguments": {"value": "{{ title }}"}}
+      ],
+      "verifier": {"kind": "page_state", "expectation": {"dom_contains": "预览就绪"}},
+      "recovery": ["reground", "save_draft", "human_takeover"]
+    }
+  },
+  "landmarks": {
+    "images": {"selector": "input[type=file]", "confidence": 0.98},
+    "title": {"selector": "input[name=title]", "confidence": 0.98}
+  },
+  "fixtures": ["fixtures/editor.json"]
+}

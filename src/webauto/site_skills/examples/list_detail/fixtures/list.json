@@ -1,0 +1,9 @@
+{
+  "page_state": {
+    "url": "https://catalog.example.test/search?q=test",
+    "dom_snapshot": "<main data-page=list><article data-result>Item</article></main>",
+    "accessibility_snapshot": {"snapshot": "搜索结果"}
+  },
+  "expected_page": "list",
+  "capability": "web.list.extract"
+}
