@@ -141,6 +141,13 @@ def click_requires_approval(node: Any) -> tuple[bool, dict[str, Any]]:
     input_type = preview["attributes"].get("type", "").lower()
     if input_type == "submit" and not any(marker in semantic for marker in _SEARCH_MARKERS):
         return True, preview
+    # B1-03: any button-like element without identifiable text or accessible name
+    # is treated as an unknown external-write target and requires approval
+    # (per plan §17.3 "Unknown 默认 L2"; previously None leaked through).
+    text = preview["text"].strip()
+    aria = preview["accessible_name"].strip()
+    if not text and not aria and preview["tag"] in {"button", "a", "img", "input"}:
+        return True, preview
     return False, preview
 
 

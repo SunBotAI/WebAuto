@@ -114,6 +114,42 @@ async def call_tool(
     browser_runtime: McpBrowserRuntime | None = None,
 ) -> dict[str, Any]:
     """Execute one allow-listed MCP operation through the shared application surface."""
+    return _envelope(_dispatch(name, arguments, service=service, butler=butler,
+                                settings_store=settings_store,
+                                browser_runtime=browser_runtime))
+
+
+def _envelope(raw: dict[str, Any]) -> dict[str, Any]:
+    """Wrap the raw dispatch result with the v3.3 OperationOutcome status field.
+
+    Preserves the existing success/data/error contract while adding a top-level
+    status drawn from the error text, so MCP/HTTP/CLI callers don't have to
+    re-parse the legacy fields.
+    """
+    if raw.get("success"):
+        return {**raw, "status": "succeeded"}
+    error_text = str(raw.get("error") or "").upper()
+    if "APPROVAL_REQUIRED" in error_text or "GOVERNED_ACTION_GET" in error_text:
+        status = "waiting"
+    elif "CHALLENGE" in error_text or "CAPTCHA" in error_text:
+        status = "blocked"
+    elif "UNCERTAIN" in error_text:
+        status = "uncertain"
+    else:
+        status = "failed"
+    return {**raw, "status": status}
+
+
+async def _dispatch(
+    name: str,
+    arguments: dict[str, Any],
+    *,
+    service: ApplicationService | None = None,
+    butler: Any | None = None,
+    settings_store: RuntimeConfigStore | None = None,
+    browser_runtime: McpBrowserRuntime | None = None,
+) -> dict[str, Any]:
+    """Inner dispatch: returns the raw {success, data, error} dict."""
     if name not in {item["name"] for item in TOOLS}:
         return {"success": False, "data": None, "error": f"unknown tool: {name}"}
     payload = dict(arguments)
