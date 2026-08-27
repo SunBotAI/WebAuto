@@ -25,6 +25,7 @@ from webauto.storage.sqlite.db import open_db
 from webauto.storage.sqlite.repos import (
     ActionAttemptRepo,
     ApprovalRepo,
+    LeaseRepo,
     append_audit,
 )
 
@@ -154,6 +155,9 @@ class GovernedActions:
         approval_id: str,
         *,
         expected_object_digest: str,
+        profile_id: str = "personal",
+        holder_id: str = "default-session",
+        fencing_token: str | None = None,
         reconciler: OutcomeReconciler | None = None,
     ) -> dict[str, object]:
         row = self._approvals.get(approval_id)
@@ -161,6 +165,25 @@ class GovernedActions:
             raise KeyError(f"unknown approval_id: {approval_id}")
         if row.consumed:
             raise RuntimeError("approval already consumed")
+
+        # B3-02: dispatch is rejected if the live fencing_token has rotated.
+        live = LeaseRepo(self._conn, ttl_ms=5 * 60_000).get(profile_id)
+        if fencing_token is not None and live is not None \
+                and live.fencing_token != fencing_token:
+            append_audit(
+                self._conn,
+                session_id=self._session_id,
+                attempt_id=row.attempt_id,
+                action_type="governed.execute.rejected",
+                error_code="FENCING_TOKEN_STALE",
+                evidence_ids=[approval_id],
+                actor=holder_id,
+            )
+            return {
+                "status": "rejected",
+                "reason": "fencing_token stale; lease taken over",
+            }
+
         if not self._approvals.consume(approval_id, expected_version_digest=expected_object_digest):
             # Either already consumed or object digest drifted.
             append_audit(
