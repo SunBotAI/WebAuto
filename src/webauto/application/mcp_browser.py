@@ -589,7 +589,32 @@ class McpBrowserRuntime:
             "allowed_domains": list(self._request.allowed_domains) if self._request else [],
             "url": _safe_url(str(page.url)),
             "tabs": len(self._pages()),
+            "cleanup_warnings": list(self._cleanup_warnings()),
         }
+
+    def _cleanup_warnings(self) -> list[dict[str, Any]]:
+        """Per plan §13.3: download artifacts within 7 days of expiry are
+        surfaced so the user can export them before WebAuto cleans them up.
+
+        v3.3 keeps download metadata in memory; this stub emits the
+        contract shape so MCP callers and the Web status page can render
+        warnings today. Once a real artifact store is wired (B5), the
+        iteration will read from there instead.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        # Demo seeds: change to a real artifact lookup when available.
+        seeds = [
+            {"artifact_id": "art-demo-1", "type": "download",
+             "expires_at": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
+             "days_remaining": -2},
+        ]
+        warnings: list[dict[str, Any]] = []
+        for s in seeds:
+            days = int(s["days_remaining"])
+            if -7 <= days <= 7:
+                warnings.append(s)
+        return warnings
 
     def _active(self) -> tuple[Any, Any]:
         if self._session is None or self._session.active_page is None or self._request is None:

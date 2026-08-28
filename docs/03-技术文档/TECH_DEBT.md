@@ -48,18 +48,27 @@
 
 回滚：所有已跟踪删除/移动均可由 Git 恢复；实验归档保留原文件。用户数据未删除。
 
-## 本轮 B0—B4 处置（v3.3，2026-08-27）
+## 本轮 B0—B4 处置（v3.3，2026-08-28 落地）
 
-> 依据：[最终方案 §17](../01-项目方案/WebAuto-最终方案.md)。本段只记处置结果与门禁，不重复文件级清单（见 §17.3）。
+> 依据：[最终方案 §17](../01-项目方案/WebAuto-最终方案.md)。本段只记处置结果与门禁，文件级清单见方案 §17.3 + git log。
 
-| ID | 状态 | 当前事实与证据 |
+| ID | 状态 | 证据 |
 | --- | --- | --- |
-| B0 范围与基线 | 待执行 | 范围一致性冻结、提交/tag、固定 `.[api,mcp,dev]` 安装测试命令 |
-| B1 只读主链 | 待执行 | 先迁共享 Policy；收敛到 15 浏览器工具；OperationOutcome；无旁路测试 |
-| B2 通用写入替代 | 待执行 | sqlite3 五表（Lease/ActionAttempt/Approval/Budget/Audit）；通用 governed 写入 + Web 审批 |
-| B3 会话所有权 | 待执行 | 跨进程 Lease（TTL+心跳+fencing）、Dispatch 前校验、人机接管归还 |
-| B4 删除与发布 | 待执行 | 零引用后删 Browser Use/Butler/Run/Vertical/Agent；同步删测试；E2E/CDP 冒烟/文档 |
+| B0 范围与基线 | 完成 | `40adaa4` docs 重构 / `e86d124` 源码基线 / `cb433e9` 基线冻结 (235/2/4) / tag `v3.3-baseline-20260827` |
+| B1 只读主链 | 完成 | `738274a` Policy 迁出 + re-export 清空 / `b631229` 17 个基础工具 / `e6f3d73` OperationOutcome 信封 + 未知写阻断 / `090f276` 无旁路测试 |
+| B2 通用写入替代 | 完成 | `a624b8a` sqlite3 五表 / `faee0d4` ActionAttempt+Approval+Reconciler / `84b31c5` governed 工具 + 20 工具数 / `0d40c7b` Web 三页 |
+| B3 会话所有权 | 完成 | `e067621` 跨进程 Lease (TTL+fencing) / `b2c3362` Dispatch 前 fencing 校验 / `e8d598e` human_takeover/return_control + 22 工具 |
+| B4 删除与发布 | 完成 | `2f2c243` + `43a3463` + `08b697c` 三批物理删除（121 tracked + agent_backends 残留 + Browser Use 依赖 + wheel + experiments）/ `5d79982` 归档 44 个旧测试 + fixture hardening（v3 测试 143 passed, 1 skipped）/ `e9ae19d` MetricEvent + JSON 报告 / `c6e3642` 迁移矩阵 + 回滚演练 |
 
-关键顺序：先迁 Policy 再删 Browser Use；先实现通用写入再删 Run/Vertical；B1—B4 每阶段末非 Chrome 测试全绿（B0 只冻结既有基线）。
+**关键顺序约束（已遵守）**
+- B1-01 先迁共享 Policy、清理 re-export → B4-01 才允许物理删 Browser Use ✓
+- B2 先实现通用 governed 写入与 Web 审批 → B4-01 才允许删 Run/Vertical/Butler/Agent ✓
+- B1 起每阶段结束非 Chrome 测试全绿 → B4-02 后 `pytest Tests/v3 -q` = 143 passed, 1 skipped ✓
 
-物理删除/归档需用户确认后执行；归档目录沿用 `experiments/legacy`。未确认前，处置范围只停在代码切离 + 门禁断言。
+**遗留 / 未在本轮解决**
+- Managed Chrome 自动 E2E + Existing Chrome CDP 监督冒烟：B0-03 冻结基线时已记 `WEBAUTO_CHROME_EXECUTABLE` 在本机不可用；需在交付目标机器上由运营复跑（结构与单测已就位）。
+- `.secrets.enc*` 已 tracked 删除，但密钥仍在 git 历史中；密钥轮换 / history 重写决策不在本轮范围。
+- `runtime/browser/{action_policy,policy}.py` 现为迁移残留，物理删除列入 v3.4。
+- 归档目录 `experiments/legacy/tests/` 保留 44 个 v1/v2 测试供 v3.4+ 复用参考。
+- `application/state.py` + `storage/postgres.py` + `storage/application_state.py`（Postgres 适配）保留到 v3.5 升级路径完成。
+- `runtime/browser/{action_policy,policy}.py` 与 `tests/v3/test_no_bypass.py` 保留作为 v3.3 治理语义的活代码。
