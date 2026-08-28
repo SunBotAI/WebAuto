@@ -8,6 +8,7 @@ atomically and rejects if the page revision drifts.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -19,9 +20,11 @@ from webauto.storage.reconciler import ReconcileResult
 
 @pytest.fixture
 def session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> str:
-    monkeypatch.setenv(
-        "TMPDIR", str(tmp_path)
-    )  # keeps the per-session sqlite inside the test sandbox
+    # Clean stale tmpdb so per-test idempotency keys don't collide
+    gov_dir = Path(tempfile.gettempdir()) / "webauto-governed"
+    if gov_dir.exists():
+        shutil.rmtree(gov_dir, ignore_errors=True)
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
     return "sess-v33-" + tempfile.mkdtemp(dir=tmp_path).rsplit("/", 1)[-1]
 
 

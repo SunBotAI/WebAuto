@@ -15,6 +15,11 @@ from webauto.storage.sqlite.repos import LeaseRepo
 
 @pytest.fixture
 def isolated_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Per-test TMPDIR + clean stale /tmp/webauto-governed."""
+    import shutil
+    gov_dir = Path(tempfile.gettempdir()) / "webauto-governed"
+    if gov_dir.exists():
+        shutil.rmtree(gov_dir, ignore_errors=True)
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     yield
 

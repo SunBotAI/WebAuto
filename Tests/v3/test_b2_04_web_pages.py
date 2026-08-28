@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
 
 @pytest.fixture
 def isolated_session(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    import shutil
+    gov_dir = Path(tempfile.gettempdir()) / "webauto-governed"
+    if gov_dir.exists():
+        shutil.rmtree(gov_dir, ignore_errors=True)
     monkeypatch.setenv("TMPDIR", str(tmp_path))
     yield
 

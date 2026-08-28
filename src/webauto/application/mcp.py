@@ -135,9 +135,10 @@ async def call_tool(
     browser_runtime: McpBrowserRuntime | None = None,
 ) -> dict[str, Any]:
     """Execute one allow-listed MCP operation through the shared application surface."""
-    return _envelope(_dispatch(name, arguments, service=service, butler=butler,
-                                settings_store=settings_store,
-                                browser_runtime=browser_runtime))
+    raw = await _dispatch(name, arguments, service=service, butler=butler,
+                          settings_store=settings_store,
+                          browser_runtime=browser_runtime)
+    return _envelope(raw)
 
 
 def _envelope(raw: dict[str, Any]) -> dict[str, Any]:
