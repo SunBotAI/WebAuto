@@ -1,6 +1,14 @@
 # QUALITY_STATUS
 
-> 状态：B0-03 BASELINE_FROZEN / 最后更新：2026-08-27
+> 状态：NEEDS_VERIFICATION / 最后更新：2026-08-28
+
+## 当前验证
+
+`2026-08-28: .venv/bin/python -m pytest Tests -q --no-header -p no:cacheprovider`
+
+- 160 passed / 1 skipped；跳过项为真实 Chrome E2E。
+- 审批不可绕过、拒绝终态、非默认 session Web 审批查找、MCP 接管/归还路由已加回归。
+- Managed Chrome 和 Existing Chrome CDP 真实证据仍缺失，不得宣称通过发布门禁。
 
 ## B0-03 测试基线（已冻结）
 

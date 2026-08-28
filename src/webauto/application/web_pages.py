@@ -20,8 +20,8 @@ _STATUS_HTML = (
     "<li>Execution facade: webauto.application.mcp_browser.McpBrowserRuntime</li>"
     "<li>Safety state: SQLite five tables (Lease / ActionAttempt / "
     "Approval / Budget / Audit)</li>"
-    "<li>Default tools: 20 (15 browser + file_upload/file_list + "
-    "governed_action_prepare/get/execute)</li>"
+    "<li>Default tools: 22 (15 browser + file_upload/file_list + "
+    "governed_action_prepare/get/execute + human_takeover/return_control)</li>"
     "</ul>"
     "<p><a href=\"/setup\">Setup</a> &middot; "
     "<a href=\"/approvals/\">Approvals</a></p>"
@@ -76,12 +76,22 @@ def create_web_pages_app() -> FastAPI:
     pulled in.
     """
 
-    def _governed_for_session(session_id: str):
-        from webauto.application.governed_actions import GovernedActions
-
-        return GovernedActions(session_id)
-
     app = FastAPI()
+    register_routes(app)
+    return app
+
+
+def register_routes(app: FastAPI, *, governed_factory=None) -> None:
+    """Mount /status and /approvals/{id} onto an existing FastAPI app.
+
+    Used by ``control_api.create_app`` so the v3.3 status page and
+    approvals viewer share one process / port / setup with the main API.
+    """
+    if governed_factory is None:
+        def governed_factory(approval_id: str):
+            from webauto.application.governed_actions import GovernedActions
+
+            return GovernedActions.for_approval(approval_id)
 
     @app.get("/status", response_class=HTMLResponse)
     async def status_page() -> HTMLResponse:
@@ -89,23 +99,24 @@ def create_web_pages_app() -> FastAPI:
 
     @app.get("/approvals/{approval_id}", response_class=HTMLResponse)
     async def approval_page(approval_id: str) -> HTMLResponse:
-        binding = _governed_for_session("default-session").get(approval_id)
+        actions = governed_factory(approval_id)
+        binding = actions.get(approval_id) if actions else None
         return _render_approval(approval_id, binding)
 
     @app.post("/approvals/{approval_id}/approve")
     async def approval_approve(approval_id: str) -> dict[str, object]:
-        actions = _governed_for_session("default-session")
-        if actions.get(approval_id) is None:
+        actions = governed_factory(approval_id)
+        if actions is None or actions.get(approval_id) is None:
             raise HTTPException(status_code=404, detail="approval not found")
-        actions._approvals.mark_resolved(approval_id)  # noqa: SLF001
+        if not actions._approvals.approve(approval_id):  # noqa: SLF001
+            raise HTTPException(status_code=409, detail="approval is no longer pending")
         return {"approval_id": approval_id, "resolved": True}
 
     @app.post("/approvals/{approval_id}/reject")
     async def approval_reject(approval_id: str) -> dict[str, object]:
-        actions = _governed_for_session("default-session")
-        if actions.get(approval_id) is None:
+        actions = governed_factory(approval_id)
+        if actions is None or actions.get(approval_id) is None:
             raise HTTPException(status_code=404, detail="approval not found")
-        actions._approvals.mark_resolved(approval_id)  # noqa: SLF001
+        if not actions._approvals.reject(approval_id):  # noqa: SLF001
+            raise HTTPException(status_code=409, detail="approval is no longer pending")
         return {"approval_id": approval_id, "rejected": True}
-
-    return app

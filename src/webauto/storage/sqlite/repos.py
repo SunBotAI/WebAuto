@@ -238,21 +238,36 @@ class ApprovalRepo:
         )
 
     def consume(self, approval_id: str, *, expected_version_digest: str) -> bool:
-        """Atomically transition consumed 0 → 1, only if the binding still matches."""
+        """Consume one approved, unexpired binding exactly once."""
         cur = self._conn.execute(
             "UPDATE approvals SET consumed = 1, updated_at_ms = ? "
-            "WHERE approval_id = ? AND consumed = 0 "
-            "  AND object_digest = ?",
-            (_now_ms(), approval_id, expected_version_digest),
+            "WHERE approval_id = ? AND consumed = 0 AND resolved = 1 "
+            "  AND expires_at_ms > ? AND object_digest = ?",
+            (_now_ms(), approval_id, _now_ms(), expected_version_digest),
+        )
+        return cur.rowcount == 1
+
+    def approve(self, approval_id: str) -> bool:
+        now = _now_ms()
+        cur = self._conn.execute(
+            "UPDATE approvals SET resolved = 1, updated_at_ms = ? "
+            "WHERE approval_id = ? AND resolved = 0 AND consumed = 0 AND expires_at_ms > ?",
+            (now, approval_id, now),
+        )
+        return cur.rowcount == 1
+
+    def reject(self, approval_id: str) -> bool:
+        """Terminally consume a rejected approval so it can never execute."""
+        cur = self._conn.execute(
+            "UPDATE approvals SET resolved = 1, consumed = 1, updated_at_ms = ? "
+            "WHERE approval_id = ? AND resolved = 0 AND consumed = 0",
+            (_now_ms(), approval_id),
         )
         return cur.rowcount == 1
 
     def mark_resolved(self, approval_id: str) -> None:
-        self._conn.execute(
-            "UPDATE approvals SET resolved = 1, updated_at_ms = ? "
-            "WHERE approval_id = ?",
-            (_now_ms(), approval_id),
-        )
+        """Compatibility alias for callers that mean user approval."""
+        self.approve(approval_id)
 
 
 def append_audit(

@@ -66,7 +66,16 @@ class GovernedActions:
         self._conn = open_db(_session_db_path(session_id))
         self._attempts = ActionAttemptRepo(self._conn)
         self._approvals = ApprovalRepo(self._conn)
-        self._control_owner: str | None = None
+
+    @classmethod
+    def for_approval(cls, approval_id: str) -> GovernedActions | None:
+        # ponytail: O(session DBs), add an approval index only if local session count grows.
+        for path in _session_db_path("_").parent.glob("*.db"):
+            actions = cls(path.stem)
+            if actions.get(approval_id) is not None:
+                return actions
+            actions.conn.close()
+        return None
 
     @property
     def conn(self) -> sqlite3.Connection:
@@ -140,7 +149,6 @@ class GovernedActions:
         Sets control_owner to 'human' so subsequent page actions are
         rejected until ``return_control`` is called.
         """
-        self._control_owner = "human"
         append_audit(
             self._conn,
             session_id=self._session_id,
@@ -154,7 +162,6 @@ class GovernedActions:
 
     def return_control(self) -> dict[str, object]:
         """B3-03: human returns control; new ActionAttempt starts on next action."""
-        self._control_owner = None
         append_audit(
             self._conn,
             session_id=self._session_id,
@@ -168,7 +175,13 @@ class GovernedActions:
 
     def assert_agent_allowed(self) -> None:
         """Raise CONTROL_OWNED_BY_HUMAN if the user is currently driving."""
-        if self._control_owner == "human":
+        row = self._conn.execute(
+            "SELECT action_type FROM audit_events WHERE session_id = ? "
+            "AND action_type IN ('browser.takeover', 'browser.return_control') "
+            "ORDER BY created_at_ms DESC, rowid DESC LIMIT 1",
+            (self._session_id,),
+        ).fetchone()
+        if row is not None and row[0] == "browser.takeover":
             raise PermissionError("CONTROL_OWNED_BY_HUMAN: agent actions paused")
 
     def get(self, approval_id: str) -> dict[str, object] | None:
@@ -205,10 +218,12 @@ class GovernedActions:
             raise RuntimeError("approval already consumed")
 
         # B3-03: agent actions are paused while the user is driving.
-        if self._control_owner == "human":
+        try:
+            self.assert_agent_allowed()
+        except PermissionError as exc:
             return {
                 "status": "blocked",
-                "reason": "CONTROL_OWNED_BY_HUMAN: agent actions paused",
+                "reason": str(exc),
             }
 
         # B3-02: dispatch is rejected if the live fencing_token has rotated.
@@ -242,7 +257,7 @@ class GovernedActions:
             )
             return {
                 "status": "rejected",
-                "reason": "object_digest drift or already consumed",
+                "reason": "approval missing, rejected, expired, consumed, or object_digest drifted",
             }
 
         self._attempts.update_status(

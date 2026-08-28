@@ -35,14 +35,14 @@ def test_status_renders_v33_summary(make_client) -> None:
     body = response.text
     assert "WebAuto v3.3" in body
     assert "McpBrowserRuntime" in body
-    assert "20" in body
+    assert "22" in body
 
 
 def test_approval_page_lookup(make_client) -> None:
     client = make_client()
     from webauto.application.governed_actions import GovernedActions
 
-    actions = GovernedActions("default-session")
+    actions = GovernedActions("non-default-web-session")
     prep = actions.prepare(
         action_type="builtin_test_listing_publish",
         client_request_id="req-e2e-page",
@@ -104,6 +104,10 @@ def test_approval_reject_marks_resolved(make_client) -> None:
     )
     assert response.status_code == 200
     assert response.json() == {"approval_id": prep.approval_id, "rejected": True}
+    binding = actions.get(prep.approval_id)
+    assert binding is not None
+    assert binding["resolved"] is True
+    assert binding["consumed"] is True
 
 
 def test_agent_tools_have_no_self_approval() -> None:

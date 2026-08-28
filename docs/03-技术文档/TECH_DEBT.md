@@ -58,7 +58,7 @@
 | B1 只读主链 | 完成 | `738274a` Policy 迁出 + re-export 清空 / `b631229` 17 个基础工具 / `e6f3d73` OperationOutcome 信封 + 未知写阻断 / `090f276` 无旁路测试 |
 | B2 通用写入替代 | 完成 | `a624b8a` sqlite3 五表 / `faee0d4` ActionAttempt+Approval+Reconciler / `84b31c5` governed 工具 + 20 工具数 / `0d40c7b` Web 三页 |
 | B3 会话所有权 | 完成 | `e067621` 跨进程 Lease (TTL+fencing) / `b2c3362` Dispatch 前 fencing 校验 / `e8d598e` human_takeover/return_control + 22 工具 |
-| B4 删除与发布 | 完成 | `2f2c243` + `43a3463` + `08b697c` 三批物理删除（121 tracked + agent_backends 残留 + Browser Use 依赖 + wheel + experiments）/ `5d79982` 归档 44 个旧测试 + fixture hardening（v3 测试 143 passed, 1 skipped）/ `e9ae19d` MetricEvent + JSON 报告 / `c6e3642` 迁移矩阵 + 回滚演练 |
+| B4 删除与发布 | 未完成 | 依赖和部分旧文件已删，但方案要求的旧栈符号零命中仍未达成；Managed Chrome/CDP 真实门禁仍无证据 |
 
 **关键顺序约束（已遵守）**
 - B1-01 先迁共享 Policy、清理 re-export → B4-01 才允许物理删 Browser Use ✓

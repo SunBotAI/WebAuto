@@ -68,6 +68,7 @@ def test_return_control_resumes_agent_actions(isolated_session) -> None:
     )
     g.takeover()
     assert g.return_control() == {"status": "returned", "control_owner": None}
+    assert g._approvals.approve(prep.approval_id)
     # Agent can now execute with a fresh fencing token from the same lease.
     lease = _seed_lease("sess-take-B").get("personal")
     assert lease is not None
@@ -84,15 +85,16 @@ def test_takeover_returns_three_states(isolated_session) -> None:
     g = GovernedActions("sess-take-C")
 
     # State 1: idle (no human)
-    assert g._control_owner is None
+    g.assert_agent_allowed()
 
     # State 2: taken over
     g.takeover()
-    assert g._control_owner == "human"
+    with pytest.raises(PermissionError, match="CONTROL_OWNED_BY_HUMAN"):
+        GovernedActions("sess-take-C").assert_agent_allowed()
 
     # State 3: returned to Agent
     g.return_control()
-    assert g._control_owner is None
+    GovernedActions("sess-take-C").assert_agent_allowed()
 
 
 def test_agent_tools_include_human_takeover_and_return_control() -> None:
@@ -101,3 +103,18 @@ def test_agent_tools_include_human_takeover_and_return_control() -> None:
     names = {t["name"] for t in list_agent_tools()}
     assert "human_takeover" in names
     assert "human_return_control" in names
+
+
+@pytest.mark.asyncio
+async def test_human_tools_are_dispatchable(isolated_session, tmp_path: Path) -> None:
+    from webauto.application.mcp import call_tool
+    from webauto.application.settings import RuntimeConfigStore
+
+    store = RuntimeConfigStore(tmp_path / "runtime")
+    auth = {"mcp_token": store.mcp_authorizer.token(), "session_id": "sess-mcp-human"}
+    taken = await call_tool("human_takeover", auth, settings_store=store)
+    assert taken["success"] is True
+    assert taken["data"]["control_owner"] == "human"
+    returned = await call_tool("human_return_control", auth, settings_store=store)
+    assert returned["success"] is True
+    assert returned["data"]["control_owner"] is None

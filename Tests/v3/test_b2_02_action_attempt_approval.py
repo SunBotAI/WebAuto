@@ -95,6 +95,7 @@ def test_approval_one_shot_consume(conn) -> None:
         ttl_ms=60_000,
     )
     # First consume succeeds
+    assert approvals.approve(apr.approval_id)
     assert approvals.consume(apr.approval_id, expected_version_digest="ob-1")
     # Second consume: row already consumed (consumed=0 predicate fails)
     assert not approvals.consume(apr.approval_id, expected_version_digest="ob-1")

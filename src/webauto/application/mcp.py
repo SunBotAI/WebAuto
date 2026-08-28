@@ -313,7 +313,9 @@ async def _dispatch(
                 ).public()
             return {"success": True, "data": jsonable(data), "error": None}
 
-        if name.startswith("governed_action_"):
+        if name.startswith("governed_action_") or name in {
+            "human_takeover", "human_return_control"
+        }:
             session_id = str(payload.pop("session_id", "default-session"))
             actions = GovernedActions(session_id)
             if name == "governed_action_prepare":

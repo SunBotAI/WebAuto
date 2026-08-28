@@ -60,6 +60,7 @@ def test_execute_succeeds_with_matching_digest(session: str) -> None:
         target={"url": "https://example.test/p", "fields": ["title"]},
         content_digest="sha256:content-2",
     )
+    assert g._approvals.approve(prep.approval_id)
     result = asyncio.run(
         g.execute(prep.approval_id, expected_object_digest=prep.object_digest)
     )
@@ -79,6 +80,7 @@ def test_execute_rejects_object_drift(session: str) -> None:
         target={"url": "https://example.test/p", "fields": ["title"]},
         content_digest="sha256:content-3",
     )
+    assert g._approvals.approve(prep.approval_id)
     result = asyncio.run(
         g.execute(prep.approval_id, expected_object_digest="sha256:different")
     )
@@ -96,6 +98,7 @@ def test_execute_twice_only_first_succeeds(session: str) -> None:
         target={"url": "https://example.test/p", "fields": ["title"]},
         content_digest="sha256:content-4",
     )
+    assert g._approvals.approve(prep.approval_id)
     first = asyncio.run(
         g.execute(prep.approval_id, expected_object_digest=prep.object_digest)
     )
@@ -120,6 +123,7 @@ def test_execute_with_reconciler_returns_branch(session: str) -> None:
         target={"url": "https://example.test/p"},
         content_digest="sha256:content-5",
     )
+    assert g._approvals.approve(prep.approval_id)
     result = asyncio.run(
         g.execute(prep.approval_id,
                   expected_object_digest=prep.object_digest,
@@ -142,3 +146,20 @@ def test_prepare_is_run_id_independent(session: str) -> None:
     # No run_id passed in; only client_request_id + target + digests.
     assert prep.attempt_id.startswith("att-")
     assert prep.approval_id.startswith("apr-")
+
+
+def test_execute_requires_explicit_approval_and_reject_is_terminal(session: str) -> None:
+    g = GovernedActions(session)
+    prep = g.prepare(
+        action_type="builtin_test_listing_publish",
+        client_request_id="req-approval-gate",
+        page_revision="rev-gate",
+        target={"url": "https://example.test/p"},
+        content_digest="sha256:gate",
+    )
+    blocked = asyncio.run(
+        g.execute(prep.approval_id, expected_object_digest=prep.object_digest)
+    )
+    assert blocked["status"] == "rejected"
+    assert g._approvals.reject(prep.approval_id)
+    assert not g._approvals.approve(prep.approval_id)

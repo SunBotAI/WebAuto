@@ -19,19 +19,10 @@ from webauto.domain import Action
 from webauto.runtime.file_workspace import FileWorkspaceViolation, RunFileWorkspace
 
 from .auth import LocalSessionError, LocalSessionManager
-from .browser_agent import build_butler_service
-from .butler_service import ButlerService
 from .dashboard import render_dashboard
 from .mcp_client_config import build_mcp_client_config
 from .service import Actor, ApplicationService, PermissionDenied, Role
 from .settings import RuntimeConfigStore
-from .vertical_workflows import (
-    SHOPPING_WORKSPACES,
-    XIANYU_BUY_WORKSPACES,
-    XIANYU_LISTING_WORKSPACES,
-    XIANYU_STORE_WORKSPACES,
-    VerticalWorkflowService,
-)
 
 
 class GoalCreate(BaseModel):
@@ -157,23 +148,29 @@ def _actor(
 ActorDependency = Annotated[Actor, Depends(_actor)]
 
 
+def _stub_legacy(*args, **kwargs):
+    """B4-01c: legacy Butler Service handler removed with Browser Use stack."""
+    raise HTTPException(status_code=410, detail='butler/legacy endpoint removed in v3.3')
+
+
 def create_app(
     service: ApplicationService | None = None,
     settings_store: RuntimeConfigStore | None = None,
-    butler: ButlerService | None = None,
     *,
     allow_trusted_headers: bool = False,
 ) -> FastAPI:
     app_service = service or ApplicationService()
     config_store = settings_store or RuntimeConfigStore(Path.cwd() / "var")
-    butler_service = butler or build_butler_service(app_service, config_store)
     session_manager = LocalSessionManager(config_store.config_dir / "session.key")
     file_workspace = RunFileWorkspace(
         config_store.runtime_dir / "files",
         config_store.runtime_dir / "downloads",
     )
-    verticals = VerticalWorkflowService(app_service)
     app = FastAPI(title="WebAuto Control API", version="3.0.0")
+    # Mount v3.3 web pages (status + approvals) defined in web_pages.py.
+    from .web_pages import register_routes as _register_web_pages
+
+    _register_web_pages(app)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "test", "testserver"],
@@ -182,7 +179,10 @@ def create_app(
     app.state.settings_store = config_store
     app.state.session_manager = session_manager
     app.state.file_workspace = file_workspace
-    app.state.vertical_workflows = verticals
+    # B4-01c: vertical_workflows + butler_service removed with Browser Use stack.
+    # Stub bindings so the legacy v1/v2 routes below don't NameError at startup.
+    verticals = None  # type: ignore[assignment]
+    butler_service = None  # type: ignore[assignment]
     app.state.allow_trusted_headers = allow_trusted_headers
 
     @app.middleware("http")
@@ -395,10 +395,10 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     vertical_categories = {
-        "shopping": SHOPPING_WORKSPACES,
-        "xianyu_buy": XIANYU_BUY_WORKSPACES,
-        "xianyu_listing": XIANYU_LISTING_WORKSPACES,
-        "xianyu_store": XIANYU_STORE_WORKSPACES,
+        "shopping": [],
+        "xianyu_buy": [],
+        "xianyu_listing": [],
+        "xianyu_store": [],
     }
 
     def category_value(alias: str) -> str:
@@ -499,7 +499,7 @@ def create_app(
             workspace = await verticals.get_workspace(actor, resource_category, workspace_id)
             file_ids = list(payload.file_ids)
             if payload.operation == "xianyu_publish":
-                if resource_category != XIANYU_LISTING_WORKSPACES:
+                if resource_category != "xianyu_listing":
                     raise ValueError("publish requires a Xianyu listing workspace")
                 expected = [str(item["file_id"]) for item in workspace["draft"]["images"]]
                 if file_ids and file_ids != expected:
@@ -651,11 +651,11 @@ def create_app(
 
     transitions = {
         "start": app_service.start_run,
-        "pause": butler_service.pause,
-        "resume": butler_service.resume,
-        "cancel": butler_service.cancel,
-        "takeover": butler_service.takeover,
-        "return-control": butler_service.return_control,
+        "pause": _stub_legacy,
+        "resume": _stub_legacy,
+        "cancel": _stub_legacy,
+        "takeover": _stub_legacy,
+        "return-control": _stub_legacy,
     }
     for route_name, operation in transitions.items():
 

@@ -6,13 +6,12 @@ import argparse
 
 from webauto.application.control_api import create_app
 from webauto.application.settings import RuntimeConfigStore
-from webauto.bootstrap import get_application_service, get_butler_service
+from webauto.bootstrap import get_application_service
 from webauto.config import RuntimeSettings
 
 service = get_application_service()
 settings_store = RuntimeConfigStore(RuntimeSettings.from_env().runtime_dir)
-butler = get_butler_service(settings_store)
-app = create_app(service, settings_store=settings_store, butler=butler)
+app = create_app(service, settings_store=settings_store)
 
 
 def main() -> None:
@@ -25,6 +24,8 @@ def main() -> None:
     token_path = settings_store.authorizer.token_path.resolve()
     settings_store.authorizer.token()
     print(f"WebAuto setup: http://{args.host}:{args.port}/setup")
+    print(f"Status:          http://{args.host}:{args.port}/status")
+    print(f"Approvals:       http://{args.host}:{args.port}/approvals/<id>")
     print(f"Setup token file: {token_path}")
     uvicorn.run(app, host=args.host, port=args.port)
 

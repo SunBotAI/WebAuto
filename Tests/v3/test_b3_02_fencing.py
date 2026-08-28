@@ -37,6 +37,7 @@ def test_dispatch_with_current_fencing_token_succeeds(isolated_session) -> None:
     conn = open_db(Path(tempfile.gettempdir()) / "webauto-governed" / "sess-fence-A.db")
     lease = LeaseRepo(conn, ttl_ms=60_000).acquire("personal", "sess-fence-A")
     assert lease is not None
+    assert g._approvals.approve(prep.approval_id)
     result = asyncio.run(
         g.execute(prep.approval_id,
                   expected_object_digest=prep.object_digest,
@@ -68,6 +69,7 @@ def test_dispatch_with_stale_fencing_token_rejected(isolated_session) -> None:
     lease_b = repo.acquire("personal", "sess-fence-B-new")
     assert lease_b is not None
     assert lease_b.fencing_token != lease_a.fencing_token
+    assert g._approvals.approve(prep.approval_id)
 
     # Old token must be rejected at dispatch.
     result = asyncio.run(

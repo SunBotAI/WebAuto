@@ -1,26 +1,23 @@
 # PROJECT_STATUS
 
-> 状态：CURRENT / 最后更新：2026-08-27
+> 状态：CURRENT / 最后更新：2026-08-28
 
 ## 一句话
 
-WebAuto v3.3 目标是「外部 AI 经 MCP 调用的受治理本地浏览器执行服务」，当前处于**方案已定、实施未开始**阶段。
+WebAuto v3.3 主体已实现，当前是**不可发布的候选版**：非 Chrome 测试全绿，但旧栈零引用清理和真实 Chrome/CDP 门禁证据未完成。
 
 ## 当前做到哪里
 
 - 最终方案定稿：[WebAuto-最终方案.md](../01-项目方案/WebAuto-最终方案.md)，其中 §17 是唯一完整执行计划（B0—B4）。
 - 代码基线（未提交迁移中）：`src/webauto` 86 个 py、`Tests/v3` 66 个测试文件。
-- 测试基线：`Tests` 全量 235 passed / 2 failed / 4 skipped；两个失败为 Dashboard 断言（conversation / vertical 控件）。
+- 2026-08-28 当前工作树：`Tests` 全量 160 passed / 1 skipped；跳过项为真实 Chrome E2E。
+- 审批强制校验、拒绝终态、跨进程接管状态和 22 个 MCP 工具路由已有回归测试。
 
 ## 缺什么（下一步）
 
-按 B0 → B1 → B2 → B3 → B4 执行，总工期约 15—22 个工作日：
-
-1. B0 范围与基线：统一方案/DoD、提交基线、固定安装测试命令。
-2. B1 只读主链：先迁共享 Policy，收敛到 15 浏览器工具，引入 OperationOutcome，无旁路测试。
-3. B2 通用写入替代：sqlite3 五表、通用 ActionAttempt/Approval、文件绑定、Web 审批、3 个 governed 工具。
-4. B3 会话所有权：跨进程 Lease、心跳续期、Dispatch 前 fencing、人机接管与归还。
-5. B4 删除与发布：零引用后删 Butler/Run/Vertical/Agent，同步删测试，Managed E2E、CDP 冒烟、文档。
+1. 完成 B4-01 零引用扫描并物理删除 Butler/Run/Vertical/Agent 残留。
+2. 在交付目标机运行 Managed Chrome E2E 和 Existing Chrome CDP 冒烟。
+3. 门禁全部通过后再将 v3.3 标记为完成/可发布。
 
 ## 关键风险
 
