@@ -26,7 +26,7 @@ from webauto.runtime.browser.policy import (
     BrowserAgentPolicyViolation,
     BrowserAgentSecurityPolicy,
 )
-from webauto.domain import AgentTaskBudget, AgentTaskRequest, PageState, RiskLevel
+from webauto.domain import PageState, RiskLevel
 from webauto.runtime.artifacts import LocalArtifactStore
 from webauto.runtime.browser import BrowserSession, ChallengeDetector, configured_browser
 
@@ -128,7 +128,7 @@ class McpBrowserRuntime:
         self._challenge_detector = ChallengeDetector()
         self._configured: Any | None = None
         self._session: BrowserSession | None = None
-        self._request: AgentTaskRequest | None = None
+        self._request: Any | None = None
         self._bindings: dict[str, _ElementBinding] = {}
         self._snapshot_limit = 120
         self._last_snapshot_id: str | None = None
@@ -167,7 +167,8 @@ class McpBrowserRuntime:
                 raise RuntimeError("a browser session is already open; close it before changing scope")
             configured = self._browser_factory(self.store)
             placement = configured.provider.capabilities.placement
-            request = AgentTaskRequest(
+            from types import SimpleNamespace
+            request = SimpleNamespace(
                 run_id="mcp-session-" + uuid4().hex,
                 objective="Expose a user-authorized browser session to an external MCP agent",
                 success_criteria=("Return current browser state without trusting page instructions",),
@@ -178,7 +179,7 @@ class McpBrowserRuntime:
                 context={},
                 read_only=True,
                 max_risk=RiskLevel.L1,
-                budget=AgentTaskBudget(max_external_writes=0),
+                budget=SimpleNamespace(max_external_writes=0),
             )
             self._policy.validate_request(request)
             if configured.mode == "managed":
@@ -590,7 +591,7 @@ class McpBrowserRuntime:
             "tabs": len(self._pages()),
         }
 
-    def _active(self) -> tuple[Any, AgentTaskRequest]:
+    def _active(self) -> tuple[Any, Any]:
         if self._session is None or self._session.active_page is None or self._request is None:
             raise RuntimeError("browser is not open; call browser_open first")
         return self._session.active_page, self._request

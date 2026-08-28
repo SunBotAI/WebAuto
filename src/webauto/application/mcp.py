@@ -10,11 +10,11 @@ from webauto.domain import Action
 from webauto.runtime.file_workspace import RunFileWorkspace
 
 from .adapters import McpAdapter
-from .entrypoints import jsonable
 from .governed_actions import GovernedActions
 from .mcp_browser import McpBrowserRuntime
 from .service import Actor, ApplicationService, Role
 from .settings import RuntimeConfigStore
+from .utils import jsonable
 from .vertical_workflows import (
     SHOPPING_WORKSPACES,
     XIANYU_BUY_WORKSPACES,

@@ -1,13 +1,5 @@
 """Pure domain model and policy boundary."""
 
-from .agent_tasks import (
-    AgentTaskBudget,
-    AgentTaskEvent,
-    AgentTaskEventKind,
-    AgentTaskRequest,
-    AgentTaskResult,
-    AgentTaskStatus,
-)
 from .contracts import (
     Action,
     ActionKind,
@@ -54,12 +46,6 @@ __all__ = [
     "ActionStatus",
     "AgentEvent",
     "AgentEventKind",
-    "AgentTaskBudget",
-    "AgentTaskEvent",
-    "AgentTaskEventKind",
-    "AgentTaskRequest",
-    "AgentTaskResult",
-    "AgentTaskStatus",
     "Approval",
     "ApprovalState",
     "AutonomyPolicy",

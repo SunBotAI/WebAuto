@@ -10,7 +10,8 @@ from typing import Any
 
 from .adapters import CliAdapter
 from .butler_service import ButlerService
-from .entrypoints import actor_from_payload, jsonable
+from .entrypoints import actor_from_payload
+from .utils import jsonable
 from .service import ApplicationService
 from .settings import RuntimeConfigStore
 
