@@ -1,2 +1,0 @@
-max_concurrent: 10
-strategy: round_robin

@@ -1,2 +1,0 @@
-max_concurrent: 7
-strategy: least_used
